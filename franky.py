@@ -1,0 +1,37 @@
+import os
+from dotenv import load_dotenv
+from anthropic import Anthropic
+
+load_dotenv()
+client = Anthropic()
+conversation_history = []
+def chat(user_message):
+    conversation_history.append({"role": "user", "content": user_message})
+    
+    print(f"[DEBUG] History length: {len(conversation_history)} messages")
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        messages=conversation_history,
+    )
+
+    assistant_message = response.content[0].text
+    conversation_history.append({"role": "assistant", "content": assistant_message})
+    return assistant_message
+
+def main():
+    print("Franky Fitness Agent")
+    print("Type 'quit' to exit.\n")
+
+    while True:
+        user_input = input("You: ")
+
+        if user_input.lower() == "bye":
+            print("See you next time!")
+            break
+
+        response = chat(user_input)
+        print(f"\nFranky: {response}\n")
+
+main()
