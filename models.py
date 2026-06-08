@@ -39,6 +39,17 @@ class GroceryItem(BaseModel):
     unit: str
 
 
+class Exercise(BaseModel):
+    id: str
+    name: str
+    body_part: str
+    equipment: str
+    target_muscle: str
+    secondary_muscles: list[str]
+    instructions: list[str]
+    gif_url: str             # for future UI
+
+
 class WeeklyPlan(BaseModel):
     planned_meals: list[PlannedMeal]
     people: int = 2  # defaults to a couple

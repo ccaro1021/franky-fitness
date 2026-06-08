@@ -17,7 +17,8 @@ The long-term vision is a set of specialized agents — one for nutrition, one f
 - **Data modeling:** Pydantic (`BaseModel` for structured outputs like meals, grocery lists)
 - **Environment:** `python-dotenv` for loading `.env`; `venv` for package isolation
 - **Recipe data:** Spoonacular Food API — provides recipes, nutritional metadata, and structured ingredient lists
-- **API keys:** Stored in `.env` as `ANTHROPIC_API_KEY` and `SPOONACULAR_API_KEY` — never hardcode them
+- **Exercise data:** ExerciseDB via RapidAPI — ~1,300 exercises with target muscle, equipment, form instructions, and GIFs
+- **API keys:** Stored in `.env` as `ANTHROPIC_API_KEY`, `SPOONACULAR_API_KEY`, and `RAPIDAPI_KEY` — never hardcode them
 
 ## Project Structure
 
@@ -30,6 +31,7 @@ franky-fitness/
 ├── requirements.txt      # Direct dependencies
 ├── models.py             # Pydantic models: Person, Meal, Ingredient, WeeklyPlan, etc.
 ├── spoonacular.py        # Spoonacular API client — search_recipes(), get_recipe()
+├── exercisedb.py         # ExerciseDB client — search_exercises(), get_exercise()
 ├── system_prompt.txt     # Franky's identity, goals, capabilities, and constraints
 ├── franky.py             # Main chatbot loop (work in progress)
 ├── hello_claude.py       # First API proof-of-concept (throwaway)
