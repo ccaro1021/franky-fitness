@@ -10,11 +10,21 @@ def chat(user_message):
     
     print(f"[DEBUG] History length: {len(conversation_history)} messages")
 
+    try:
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=2048,
         messages=conversation_history,
     )
+    except anthropic.AuthenticationError:
+        print("Your API key is invalid. Check your .env file.")
+        return None
+    except anthropic.RateLimitError:
+        print("Too many requests. Wait a moment and try again.")
+        return None
+    except Exception as e:
+        print(f"Something went wrong: {e}")
+        return None
 
     assistant_message = response.content[0].text
     conversation_history.append({"role": "assistant", "content": assistant_message})
@@ -32,6 +42,6 @@ def main():
             break
 
         response = chat(user_input)
-        print(f"\nFranky: {response}\n")
+        print(f"FRANKY SAYS: {response}")
 
 main()
