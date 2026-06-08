@@ -1,4 +1,5 @@
 import os
+import anthropic
 from dotenv import load_dotenv
 from anthropic import Anthropic
 
@@ -11,11 +12,11 @@ def chat(user_message):
     print(f"[DEBUG] History length: {len(conversation_history)} messages")
 
     try:
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        messages=conversation_history,
-    )
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            messages=conversation_history,
+        )
     except anthropic.AuthenticationError:
         print("Your API key is invalid. Check your .env file.")
         return None
@@ -44,4 +45,5 @@ def main():
         response = chat(user_input)
         print(f"FRANKY SAYS: {response}")
 
-main()
+if __name__ == "__main__":
+    main()
