@@ -1,8 +1,11 @@
+import json
 import anthropic
+from datetime import date
 from dotenv import load_dotenv
 from anthropic import Anthropic
 from spoonacular import search_recipes
 from exercisedb import search_exercises
+from models import MonthlyPlan, WorkoutDay, PlannedExercise
 
 load_dotenv()
 client = Anthropic()
@@ -40,6 +43,73 @@ TOOLS = [
                 },
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "save_exercise_plan",
+        "description": (
+            "Save a structured monthly exercise plan for one person. "
+            "Call this after searching for exercises and assembling the full plan. "
+            "Build separate plans for Chris and Kaitlyn — call this once per person."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "person_name": {
+                    "type": "string",
+                    "description": "First name of the person this plan is for",
+                },
+                "workout_days": {
+                    "type": "array",
+                    "description": "List of training days in the weekly schedule",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "day": {"type": "string", "description": "Day of the week, e.g. Monday"},
+                            "focus": {"type": "string", "description": "Session focus, e.g. Upper Body Push"},
+                            "exercises": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "exercise_id": {"type": "string"},
+                                        "exercise_name": {"type": "string"},
+                                        "sets": {"type": "integer"},
+                                        "reps": {"type": "string"},
+                                        "rest_seconds": {"type": "integer"},
+                                    },
+                                    "required": ["exercise_id", "exercise_name", "sets", "reps", "rest_seconds"],
+                                },
+                            },
+                        },
+                        "required": ["day", "focus", "exercises"],
+                    },
+                },
+                "rest_days": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Days with no training, e.g. ['Wednesday', 'Sunday']",
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Any coaching notes, progressions, or context for the plan",
+                },
+            },
+            "required": ["person_name", "workout_days"],
+        },
+    },
+    {
+        "name": "get_exercise_plan",
+        "description": "Retrieve the saved monthly exercise plan for a person.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "person_name": {
+                    "type": "string",
+                    "description": "First name of the person whose plan to retrieve",
+                },
+            },
+            "required": ["person_name"],
         },
     },
     {
@@ -124,6 +194,43 @@ def run_tool(name: str, inputs: dict) -> str:
                 f"- {ex.name} | Target: {ex.target_muscle} | Equipment: {ex.equipment} "
                 f"| Also works: {secondary}\n  Form: {instructions}"
             )
+        return "\n".join(lines)
+
+    if name == "save_exercise_plan":
+        person_name = inputs["person_name"]
+        plan = MonthlyPlan(
+            person_name=person_name,
+            created_date=str(date.today()),
+            workout_days=[WorkoutDay(**d) for d in inputs["workout_days"]],
+            rest_days=inputs.get("rest_days", []),
+            notes=inputs.get("notes", ""),
+        )
+        filename = f"exercise_plan_{person_name.lower()}.json"
+        with open(filename, "w") as f:
+            json.dump(plan.model_dump(), f, indent=2)
+        return (
+            f"Exercise plan for {person_name} saved ({len(plan.workout_days)} training days/week). "
+            f"File: {filename}"
+        )
+
+    if name == "get_exercise_plan":
+        person_name = inputs["person_name"]
+        filename = f"exercise_plan_{person_name.lower()}.json"
+        try:
+            with open(filename) as f:
+                plan = MonthlyPlan(**json.load(f))
+        except FileNotFoundError:
+            return f"No exercise plan found for {person_name}. Build one first."
+
+        lines = [f"Exercise plan for {plan.person_name} (created {plan.created_date}):"]
+        for day in plan.workout_days:
+            lines.append(f"\n{day.day} — {day.focus}")
+            for ex in day.exercises:
+                lines.append(f"  - {ex.exercise_name}: {ex.sets} sets × {ex.reps} (rest {ex.rest_seconds}s)")
+        if plan.rest_days:
+            lines.append(f"\nRest days: {', '.join(plan.rest_days)}")
+        if plan.notes:
+            lines.append(f"\nNotes: {plan.notes}")
         return "\n".join(lines)
 
     return f"Unknown tool: {name}"

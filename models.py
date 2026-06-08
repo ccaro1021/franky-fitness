@@ -50,6 +50,28 @@ class Exercise(BaseModel):
     gif_url: str             # for future UI
 
 
+class PlannedExercise(BaseModel):
+    exercise_id: str
+    exercise_name: str       # canonical name from ExerciseDB
+    sets: int
+    reps: str                # "8-12", "30 seconds", "to failure"
+    rest_seconds: int
+
+
+class WorkoutDay(BaseModel):
+    day: str                 # "Monday"
+    focus: str               # "Upper Body Push"
+    exercises: list[PlannedExercise]
+
+
+class MonthlyPlan(BaseModel):
+    person_name: str
+    created_date: str
+    workout_days: list[WorkoutDay]
+    rest_days: list[str]
+    notes: str
+
+
 class WeeklyPlan(BaseModel):
     planned_meals: list[PlannedMeal]
     people: int = 2  # defaults to a couple
