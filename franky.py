@@ -6,6 +6,9 @@ from anthropic import Anthropic
 load_dotenv()
 client = Anthropic()
 conversation_history = []
+
+with open("system_prompt.txt", "r") as f:
+    SYSTEM_PROMPT = f.read()
 def chat(user_message):
     conversation_history.append({"role": "user", "content": user_message})
     
@@ -15,6 +18,7 @@ def chat(user_message):
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=2048,
+            system=SYSTEM_PROMPT,
             messages=conversation_history,
         )
     except anthropic.AuthenticationError:

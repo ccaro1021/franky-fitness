@@ -30,6 +30,7 @@ franky-fitness/
 ├── requirements.txt      # Direct dependencies
 ├── models.py             # Pydantic models: Person, Meal, Ingredient, WeeklyPlan, etc.
 ├── spoonacular.py        # Spoonacular API client — search_recipes(), get_recipe()
+├── system_prompt.txt     # Franky's identity, goals, capabilities, and constraints
 ├── franky.py             # Main chatbot loop (work in progress)
 ├── hello_claude.py       # First API proof-of-concept (throwaway)
 ├── phase-0-notes.md      # Learning journal
@@ -45,9 +46,9 @@ We are in Phase 0. The goal is to get comfortable with Python, the Anthropic SDK
 - [x] Make a successful API call (`hello_claude.py`)
 - [x] Build a multi-turn conversation loop with history (`franky.py`)
 - [x] Understand .env secrets pattern
-- [ ] Add a system prompt to give Franky a personality and fitness context
-- [ ] Fix indentation bug in `franky.py` (line 15)
-- [ ] Guard `main()` with `if __name__ == "__main__":`
+- [x] Add a system prompt to give Franky a personality and fitness context
+- [x] Fix indentation bug in `franky.py` (line 15)
+- [x] Guard `main()` with `if __name__ == "__main__":`
 - [ ] Connect the `Meal` Pydantic model to the actual chat flow
 
 **Phase 1 (next):** Tool use, structured outputs, and the first real feature (meal planning).
