@@ -14,6 +14,9 @@ The long-term vision is a set of specialized agents — one for nutrition, one f
 
 - **Language:** Python 3.13
 - **AI SDK:** Anthropic Python SDK (`anthropic`)
+- **Backend:** FastAPI + Uvicorn — serves the chat and plan APIs, owns all Claude calls and persistence
+- **Frontend:** React (Vite) + Tailwind CSS v4 — chat UI with inline meal-plan and recipe cards
+- **Database:** PostgreSQL 17 (local, via Homebrew `postgresql@17`). Database name: `franky_fitness`. Connection string in `.env` as `DATABASE_URL`. Driver: `psycopg2-binary`.
 - **Data modeling:** Pydantic (`BaseModel` for structured outputs like meals, grocery lists)
 - **Environment:** `python-dotenv` for loading `.env`; `venv` for package isolation
 - **Recipe data:** Spoonacular Food API — provides recipes, nutritional metadata, and structured ingredient lists
@@ -24,7 +27,7 @@ The long-term vision is a set of specialized agents — one for nutrition, one f
 
 ```
 franky-fitness/
-├── .env                  # API keys (gitignored)
+├── .env                  # API keys + DATABASE_URL (gitignored)
 ├── .gitignore
 ├── CLAUDE.md             # This file
 ├── README.md
@@ -32,28 +35,60 @@ franky-fitness/
 ├── models.py             # Pydantic models: Person, Meal, Ingredient, WeeklyPlan, etc.
 ├── spoonacular.py        # Spoonacular API client — search_recipes(), get_recipe()
 ├── exercisedb.py         # ExerciseDB client — search_exercises(), get_exercise()
-├── system_prompt.txt     # Franky's identity, goals, capabilities, and constraints
-├── franky.py             # Main chatbot loop (work in progress)
+├── system_prompt.txt     # System prompt for the legacy CLI (franky.py)
+├── franky.py             # Original CLI chatbot loop (superseded by the web app)
 ├── hello_claude.py       # First API proof-of-concept (throwaway)
 ├── phase-0-notes.md      # Learning journal
+├── docs/
+│   └── franky-fitness-prd.md   # Full product requirements doc
+├── backend/              # FastAPI application
+│   ├── main.py           # API routes: /api/chat, /api/plans, /api/people
+│   ├── meal_agent.py     # Meal planning agent — tools, prompt builder, tool-use loop
+│   ├── database.py       # psycopg2 connection + table setup (plans, agent_runs)
+│   └── profiles.py       # Hardcoded Chris & Kaitlyn profiles (no auth yet)
+├── frontend/             # Vite + React + Tailwind app
+│   └── src/
+│       ├── App.jsx       # Header + person selector (Chris / Kaitlyn)
+│       ├── api.js        # fetch wrappers for the backend
+│       └── components/   # Chat.jsx, MealPlanCard.jsx, RecipeCard.jsx
 └── venv/                 # Virtual environment (gitignored)
 ```
 
-## Current Phase: Phase 0 — Foundations
+## Architecture (Web App)
 
-We are in Phase 0. The goal is to get comfortable with Python, the Anthropic SDK, and basic agent patterns before building real features.
+The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built as **vertical slices** — each slice ships one feature through every layer (agent → API → UI → persistence) rather than building layers horizontally.
 
-**Phase 0 checklist:**
-- [x] Set up venv and install dependencies
-- [x] Make a successful API call (`hello_claude.py`)
-- [x] Build a multi-turn conversation loop with history (`franky.py`)
-- [x] Understand .env secrets pattern
-- [x] Add a system prompt to give Franky a personality and fitness context
-- [x] Fix indentation bug in `franky.py` (line 15)
-- [x] Guard `main()` with `if __name__ == "__main__":`
-- [ ] Connect the `Meal` Pydantic model to the actual chat flow
+**Slice 1 (done): Meal planning end-to-end.** A user picks who they are (Chris/Kaitlyn — no auth yet, profiles are hardcoded in `backend/profiles.py`), chats with Franky, and gets a structured weekly meal plan rendered as an inline table. Plans save to PostgreSQL.
 
-**Phase 1 (next):** Tool use, structured outputs, and the first real feature (meal planning).
+**Slice 2 (done): Recipe retrieval.** The most recently saved plan for the active person is injected into the agent's system prompt on every `/api/chat` call. The agent has a `get_recipe` tool; when the user asks how to make a meal, it resolves the meal to its Spoonacular ID from the plan, fetches full ingredients + steps, and the frontend renders a `RecipeCard`.
+
+### How the meal agent works
+- `meal_agent.run_meal_agent(messages, profile, current_plan)` runs the tool-use loop.
+- Tools: `search_meals` (Spoonacular search), `get_recipe` (full recipe by ID or name), `finalize_meal_plan` (emits structured plan data).
+- `_run_tool` returns a `(text_for_agent, structured_data_for_frontend)` tuple. The structured data (a finalized plan or a recipe) is surfaced back through the API response alongside the agent's text.
+- The system prompt is built dynamically per request in `_build_system_prompt` — it injects the person's profile and their current saved plan. **Note:** the web app does NOT use `system_prompt.txt`; that file is only for the legacy CLI.
+- Every `/api/chat` call logs token usage and latency to the `agent_runs` table.
+
+### Running the app locally
+```bash
+# PostgreSQL (one-time): brew services start postgresql@17
+# Terminal 1 — backend
+source venv/bin/activate && uvicorn backend.main:app --reload   # :8000
+# Terminal 2 — frontend
+cd frontend && npm run dev                                       # :5173 (proxies /api to :8000)
+```
+
+## Decisions Made This Session
+- **PostgreSQL from the start** (not SQLite) — matches the PRD target. Installed via `brew install postgresql@17`.
+- **No auth yet** — Chris & Kaitlyn are hardcoded in `profiles.py`. Auth is a later slice.
+- **Vertical slices over horizontal layers** — ship one feature through all layers at a time.
+
+## Roadmap (next slices)
+- Grocery list generation from a saved meal plan
+- Exercise planning agent (port the logic already in `franky.py` / `exercisedb.py`)
+- Multi-agent coordinator routing between meal / grocery / exercise agents
+- Feedback (thumbs up/down) + preference summaries
+- Email/password auth to replace hardcoded profiles
 
 ## Coding Conventions
 
