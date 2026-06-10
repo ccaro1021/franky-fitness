@@ -96,6 +96,19 @@ source venv/bin/activate && uvicorn backend.main:app --reload   # :8000
 cd frontend && npm run dev                                       # :5173 (proxies /api to :8000)
 ```
 
+### Debugging: checking which agent handled a turn
+Query `agent_runs` directly to see what the coordinator decided:
+```bash
+psql franky_fitness -c "SELECT id, agent_type, person_name, created_at FROM agent_runs ORDER BY id DESC LIMIT 6;"
+```
+A successful turn inserts **two rows** with the same `created_at`: `coordinator` (the routing call) followed by `meal_agent` or `exercise_agent` (the specialist that handled it).
+
+**Caveat:** `agent_runs` only gets written on a fully successful turn. Two cases write nothing:
+- The grocery-list short-circuit ("grocery list" / "shopping list" in the message) — pure code, never reaches the coordinator.
+- A failed coordinator/specialist call (`RuntimeError` → HTTP 502) — the exception is raised before the insert.
+
+So "no new rows after sending a message" means either it hit the grocery shortcut or the request errored — check `/tmp/uvicorn.log` or the browser's network tab for a non-200 response.
+
 ## Decisions Made This Session
 - **PostgreSQL from the start** (not SQLite) — matches the PRD target. Installed via `brew install postgresql@17`.
 - **No auth yet** — Chris & Kaitlyn are hardcoded in `profiles.py`. Auth is a later slice.
