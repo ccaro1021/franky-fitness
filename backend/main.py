@@ -8,6 +8,9 @@ from pydantic import BaseModel
 from backend.database import get_connection, setup_tables
 from backend.meal_agent import run_meal_agent
 from backend.profiles import PEOPLE, PROFILES
+from grocery import generate_grocery_list
+
+GROCERY_LIST_KEYWORDS = ["grocery list", "shopping list"]
 
 
 @asynccontextmanager
@@ -67,6 +70,17 @@ def chat(req: ChatRequest):
             if row:
                 current_plan = row[0]
 
+    # Grocery lists are pure code, not an agent call — short-circuit if asked for one
+    last_message = messages[-1]["content"].lower() if messages else ""
+    if current_plan and any(kw in last_message for kw in GROCERY_LIST_KEYWORDS):
+        items = generate_grocery_list(current_plan)
+        return {
+            "message": "Here's your grocery list for this week's plan!",
+            "meal_plan": None,
+            "recipe": None,
+            "grocery_list": {"items": [item.model_dump() for item in items]},
+        }
+
     try:
         result = run_meal_agent(messages, PROFILES[req.person], current_plan=current_plan)
     except RuntimeError as e:
@@ -85,6 +99,7 @@ def chat(req: ChatRequest):
         "message": result["message"],
         "meal_plan": result["meal_plan"],
         "recipe": result["recipe"],
+        "grocery_list": None,
     }
 
 
@@ -151,3 +166,20 @@ def get_plan(plan_id: int):
         "content": row[2],
         "created_at": row[3].isoformat(),
     }
+
+
+@app.get("/api/plans/{plan_id}/grocery-list")
+def get_grocery_list(plan_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT content FROM plans WHERE id = %s AND type = 'meal_plan'",
+                (plan_id,),
+            )
+            row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    items = generate_grocery_list(row[0])
+    return {"items": [item.model_dump() for item in items]}

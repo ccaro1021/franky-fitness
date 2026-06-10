@@ -26,3 +26,9 @@ export async function listPlans(person) {
   if (!res.ok) throw new Error('Failed to load plans')
   return res.json()
 }
+
+export async function getGroceryList(planId) {
+  const res = await fetch(`/api/plans/${planId}/grocery-list`)
+  if (!res.ok) throw new Error('Failed to load grocery list')
+  return res.json()
+}

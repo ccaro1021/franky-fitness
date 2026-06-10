@@ -4,9 +4,9 @@
 
 ## What This Project Is
 
-Franky Fitness is a multi-agent meal planning, exercise, and grocery assistant built for a couple. It uses the Anthropic Python SDK to power a conversational AI agent (Franky) that helps plan meals, suggest workouts, and generate grocery lists tailored to two people's preferences and goals.
+Franky Fitness is a meal planning, exercise, and grocery assistant built for a couple. It uses the Anthropic Python SDK to power a conversational AI agent (Franky) that helps plan meals, suggest workouts, and generate grocery lists tailored to two people's preferences and goals.
 
-The long-term vision is a set of specialized agents — one for nutrition, one for grocery planning, one for exercise — that can coordinate and be invoked through a single conversation interface.
+The long-term architecture is two LLM specialists — meal planning (which also covers nutrition guidance) and exercise planning — coordinated through a single conversation interface. Grocery list generation is deterministic code, not an agent (see `docs/IMPLEMENTATION_PLAN.md`, Decision 3).
 
 ## Who It's For
 
@@ -34,9 +34,10 @@ franky-fitness/
 ├── CLAUDE.md             # This file
 ├── README.md
 ├── requirements.txt      # Direct dependencies
-├── models.py             # Pydantic models: Person, Meal, Ingredient, WeeklyPlan, etc.
+├── models.py             # Pydantic models: Person, Meal, Ingredient, GroceryItem, WeeklyPlan, etc.
 ├── spoonacular.py        # Spoonacular API client — search_recipes(), get_recipe()
 ├── exercisedb.py         # ExerciseDB client — search_exercises(), get_exercise()
+├── grocery.py            # Pure code: generate_grocery_list() sums + categorizes ingredients from a saved plan
 ├── system_prompt.txt     # System prompt for the legacy CLI (franky.py)
 ├── franky.py             # Original CLI chatbot loop (superseded by the web app)
 ├── hello_claude.py       # First API proof-of-concept (throwaway)
@@ -44,7 +45,7 @@ franky-fitness/
 ├── docs/
 │   └── franky-fitness-prd.md   # Full product requirements doc
 ├── backend/              # FastAPI application
-│   ├── main.py           # API routes: /api/chat, /api/plans, /api/people
+│   ├── main.py           # API routes: /api/chat, /api/plans, /api/plans/{id}/grocery-list, /api/people
 │   ├── meal_agent.py     # Meal planning agent — tools, prompt builder, tool-use loop
 │   ├── database.py       # psycopg2 connection + table setup (plans, agent_runs)
 │   └── profiles.py       # Hardcoded Chris & Kaitlyn profiles (no auth yet)
@@ -52,7 +53,7 @@ franky-fitness/
 │   └── src/
 │       ├── App.jsx       # Header + person selector (Chris / Kaitlyn)
 │       ├── api.js        # fetch wrappers for the backend
-│       └── components/   # Chat.jsx, MealPlanCard.jsx, RecipeCard.jsx
+│       └── components/   # Chat.jsx, MealPlanCard.jsx, RecipeCard.jsx, GroceryListCard.jsx
 └── venv/                 # Virtual environment (gitignored)
 ```
 
@@ -63,6 +64,8 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 **Slice 1 (done): Meal planning end-to-end.** A user picks who they are (Chris/Kaitlyn — no auth yet, profiles are hardcoded in `backend/profiles.py`), chats with Franky, and gets a structured weekly meal plan rendered as an inline table. Plans save to PostgreSQL.
 
 **Slice 2 (done): Recipe retrieval.** The most recently saved plan for the active person is injected into the agent's system prompt on every `/api/chat` call. The agent has a `get_recipe` tool; when the user asks how to make a meal, it resolves the meal to its Spoonacular ID from the plan, fetches full ingredients + steps, and the frontend renders a `RecipeCard`.
+
+**Slice 3 (done): Grocery list generation.** When `finalize_meal_plan` is called, each meal's full ingredient list is fetched from Spoonacular and stored alongside the plan. `grocery.py` is pure code — no agent, no LLM call — that sums ingredient quantities across a saved plan and categorizes each item by store section via a static keyword lookup. Triggered two ways: (1) a "Grocery List" button on a saved `MealPlanCard` calls `GET /api/plans/{id}/grocery-list`, or (2) typing "grocery list" / "shopping list" in chat — `/api/chat` detects this intent and short-circuits to `generate_grocery_list()` before reaching the agent. Either way, the frontend renders a `GroceryListCard` grouped by category.
 
 ### How the meal agent works
 - `meal_agent.run_meal_agent(messages, profile, current_plan)` runs the tool-use loop.
@@ -86,9 +89,8 @@ cd frontend && npm run dev                                       # :5173 (proxie
 - **Vertical slices over horizontal layers** — ship one feature through all layers at a time.
 
 ## Roadmap (next slices)
-- Grocery list generation from a saved meal plan
 - Exercise planning agent (port the logic already in `franky.py` / `exercisedb.py`)
-- Multi-agent coordinator routing between meal / grocery / exercise agents
+- Coordinator routing between meal and exercise agents
 - Feedback (thumbs up/down) + preference summaries
 - Email/password auth to replace hardcoded profiles
 

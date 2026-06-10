@@ -223,7 +223,17 @@ def _run_tool(name: str, inputs: dict) -> tuple[str, dict | None]:
             return f"Could not retrieve recipe: {e}", None
 
     if name == "finalize_meal_plan":
-        return "Meal plan finalized.", None
+        for meal in inputs.get("meals", []):
+            spoonacular_id = meal.get("spoonacular_id")
+            if spoonacular_id:
+                try:
+                    recipe = get_recipe(spoonacular_id)
+                    meal["ingredients"] = [ing.model_dump() for ing in recipe.ingredients]
+                except Exception:
+                    meal["ingredients"] = []
+            else:
+                meal["ingredients"] = []
+        return "Meal plan finalized.", inputs
 
     return f"Unknown tool: {name}", None
 
@@ -273,10 +283,10 @@ def run_meal_agent(
 
         tool_results = []
         for tool_use in tool_uses:
-            if tool_use.name == "finalize_meal_plan":
-                meal_plan = tool_use.input
-
             result_text, result_data = _run_tool(tool_use.name, tool_use.input)
+
+            if tool_use.name == "finalize_meal_plan":
+                meal_plan = result_data
 
             if tool_use.name == "get_recipe" and result_data:
                 recipe = result_data

@@ -37,6 +37,7 @@ class GroceryItem(BaseModel):
     name: str
     total_quantity: float
     unit: str
+    category: str = "pantry"
 
 
 class Exercise(BaseModel):

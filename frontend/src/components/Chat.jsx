@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { sendMessage } from '../api'
 import MealPlanCard from './MealPlanCard'
 import RecipeCard from './RecipeCard'
+import GroceryListCard from './GroceryListCard'
 
 function Message({ msg, person }) {
   const isUser = msg.role === 'user'
@@ -24,6 +25,7 @@ function Message({ msg, person }) {
         </div>
         {msg.meal_plan && <MealPlanCard plan={msg.meal_plan} person={person} />}
         {msg.recipe && <RecipeCard recipe={msg.recipe} />}
+        {msg.grocery_list && <GroceryListCard groceryList={msg.grocery_list} />}
       </div>
     </div>
   )
@@ -79,6 +81,7 @@ export default function Chat({ person }) {
           content: data.message,
           meal_plan: data.meal_plan || null,
           recipe: data.recipe || null,
+          grocery_list: data.grocery_list || null,
         },
       ])
     } catch (e) {

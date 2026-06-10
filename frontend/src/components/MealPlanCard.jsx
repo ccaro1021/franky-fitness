@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { savePlan } from '../api'
+import { savePlan, getGroceryList } from '../api'
+import GroceryListCard from './GroceryListCard'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const MEAL_ORDER = ['breakfast', 'lunch', 'dinner', 'snack']
@@ -8,6 +9,9 @@ export default function MealPlanCard({ plan, person }) {
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [planId, setPlanId] = useState(null)
+  const [groceryList, setGroceryList] = useState(null)
+  const [loadingGroceryList, setLoadingGroceryList] = useState(false)
 
   const byDay = DAYS.reduce((acc, day) => {
     const meals = plan.meals.filter(m => m.day === day).sort(
@@ -21,12 +25,26 @@ export default function MealPlanCard({ plan, person }) {
     setSaving(true)
     setError(null)
     try {
-      await savePlan(person, plan)
+      const { id } = await savePlan(person, plan)
+      setPlanId(id)
       setSaved(true)
     } catch (e) {
       setError('Failed to save. Try again.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleGroceryList() {
+    setLoadingGroceryList(true)
+    setError(null)
+    try {
+      const data = await getGroceryList(planId)
+      setGroceryList(data)
+    } catch (e) {
+      setError('Failed to load grocery list. Try again.')
+    } finally {
+      setLoadingGroceryList(false)
     }
   }
 
@@ -43,7 +61,18 @@ export default function MealPlanCard({ plan, person }) {
             {saving ? 'Saving…' : 'Save Plan'}
           </button>
         ) : (
-          <span className="text-xs text-emerald-700 font-medium">Saved</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-emerald-700 font-medium">Saved</span>
+            {!groceryList && (
+              <button
+                onClick={handleGroceryList}
+                disabled={loadingGroceryList}
+                className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
+              >
+                {loadingGroceryList ? 'Loading…' : 'Grocery List'}
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -91,6 +120,8 @@ export default function MealPlanCard({ plan, person }) {
           <p className="text-xs text-gray-500 italic">{plan.notes}</p>
         </div>
       )}
+
+      {groceryList && <GroceryListCard groceryList={groceryList} />}
     </div>
   )
 }
