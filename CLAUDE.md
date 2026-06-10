@@ -1,5 +1,5 @@
 # Franky Fitness — CLAUDE.md
-
+When creating a functional always add a 1 line description of what it does. 
 ## What This Project Is
 
 Franky Fitness is a multi-agent meal planning, exercise, and grocery assistant built for a couple. It uses the Anthropic Python SDK to power a conversational AI agent (Franky) that helps plan meals, suggest workouts, and generate grocery lists tailored to two people's preferences and goals.
