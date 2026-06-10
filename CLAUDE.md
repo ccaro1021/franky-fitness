@@ -1,5 +1,7 @@
 # Franky Fitness — CLAUDE.md
-When creating a functional always add a 1 line description of what it does. 
+
+> **Start here:** Read [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) at the start of each session — it holds the architecture decisions, build order, and the running decision log. The full product vision is in [`docs/franky-fitness-prd.md`](docs/franky-fitness-prd.md).
+
 ## What This Project Is
 
 Franky Fitness is a multi-agent meal planning, exercise, and grocery assistant built for a couple. It uses the Anthropic Python SDK to power a conversational AI agent (Franky) that helps plan meals, suggest workouts, and generate grocery lists tailored to two people's preferences and goals.
@@ -94,6 +96,7 @@ cd frontend && npm run dev                                       # :5173 (proxie
 
 ### General
 - Keep files small and single-purpose. One agent or feature per file.
+- When creating a function, always add a one-line description of what it does.
 - Use `if __name__ == "__main__":` to guard entry points — never call `main()` at module level.
 - Load environment variables with `load_dotenv()` at the top of every script that needs the API.
 
