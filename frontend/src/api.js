@@ -58,6 +58,23 @@ export async function updateProfile(profile) {
   return res.json()
 }
 
+export async function getPreferences() {
+  const res = await fetch('/api/preferences', { credentials: 'include' })
+  if (!res.ok) throw new Error('Failed to load preferences')
+  return res.json()
+}
+
+export async function forgetPreference(itemType, itemName) {
+  const res = await fetch('/api/preferences/forget', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ item_type: itemType, item_name: itemName }),
+  })
+  if (!res.ok) throw new Error('Failed to update preferences')
+  return res.json()
+}
+
 export async function sendMessage(messages) {
   const res = await fetch('/api/chat', {
     method: 'POST',

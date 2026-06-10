@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
-import { getProfile, updateProfile } from '../api'
+import { forgetPreference, getPreferences, getProfile, updateProfile } from '../api'
+
+const PREFERENCE_GROUPS = [
+  { key: 'liked_meals', label: 'Meals you liked', itemType: 'meal' },
+  { key: 'disliked_meals', label: 'Meals you disliked', itemType: 'meal' },
+  { key: 'liked_workouts', label: 'Exercises you liked', itemType: 'exercise' },
+  { key: 'disliked_workouts', label: 'Exercises you disliked', itemType: 'exercise' },
+]
 
 function arrayToText(arr) {
   return (arr || []).join(', ')
@@ -26,6 +33,9 @@ export default function ProfilePage() {
   const [dietaryRestrictions, setDietaryRestrictions] = useState('')
   const [notes, setNotes] = useState('')
 
+  const [preferences, setPreferences] = useState(null)
+  const [preferencesError, setPreferencesError] = useState(null)
+
   useEffect(() => {
     getProfile()
       .then(profile => {
@@ -39,7 +49,20 @@ export default function ProfilePage() {
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
+
+    getPreferences()
+      .then(setPreferences)
+      .catch(e => setPreferencesError(e.message))
   }, [])
+
+  async function handleForget(itemType, itemName) {
+    try {
+      const updated = await forgetPreference(itemType, itemName)
+      setPreferences(updated)
+    } catch (err) {
+      setPreferencesError(err.message)
+    }
+  }
 
   async function handleSave(e) {
     e.preventDefault()
@@ -158,6 +181,48 @@ export default function ProfilePage() {
           {saving ? 'Saving…' : 'Save'}
         </button>
       </form>
+
+      <div className="max-w-md mx-auto mt-8 space-y-4">
+        <h2 className="text-lg font-semibold text-gray-800">What Franky Knows About You</h2>
+        <p className="text-sm text-gray-500">
+          Based on your 👍/👎 feedback. Remove anything that doesn't seem right —
+          Franky will stop factoring it into future plans.
+        </p>
+
+        {preferencesError && <p className="text-sm text-red-600">{preferencesError}</p>}
+
+        {preferences && PREFERENCE_GROUPS.every(g => preferences[g.key].length === 0) && (
+          <p className="text-sm text-gray-400">
+            No feedback yet — rate meals and exercises in your saved plans to teach Franky your preferences.
+          </p>
+        )}
+
+        {preferences && PREFERENCE_GROUPS.map(group => (
+          preferences[group.key].length > 0 && (
+            <div key={group.key}>
+              <h3 className="text-xs font-medium text-gray-500 mb-1.5">{group.label}</h3>
+              <div className="flex flex-wrap gap-2">
+                {preferences[group.key].map(itemName => (
+                  <span
+                    key={itemName}
+                    className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-700 rounded-full pl-3 pr-2 py-1 text-sm"
+                  >
+                    {itemName}
+                    <button
+                      type="button"
+                      onClick={() => handleForget(group.itemType, itemName)}
+                      title="Remove this preference"
+                      className="text-gray-400 hover:text-gray-600 leading-none"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )
+        ))}
+      </div>
     </div>
   )
 }

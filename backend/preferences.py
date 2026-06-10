@@ -5,6 +5,14 @@ from backend.database import get_connection
 ITEM_TYPES = ("meal", "exercise")
 RATINGS = ("positive", "negative")
 
+EMPTY_SUMMARY = {
+    "liked_meals": [],
+    "disliked_meals": [],
+    "liked_workouts": [],
+    "disliked_workouts": [],
+    "patterns": [],
+}
+
 
 def record_feedback(
     user_id: int,
@@ -40,13 +48,7 @@ def _recompute_summary(user_id: int) -> dict:
             )
             rows = cur.fetchall()
 
-            summary = {
-                "liked_meals": [],
-                "disliked_meals": [],
-                "liked_workouts": [],
-                "disliked_workouts": [],
-                "patterns": [],
-            }
+            summary = {key: [] for key in EMPTY_SUMMARY}
             for item_type, item_name, rating in rows:
                 if item_type == "meal":
                     bucket = "liked_meals" if rating == "positive" else "disliked_meals"
@@ -76,3 +78,16 @@ def get_preference_summary(user_id: int) -> dict | None:
             row = cur.fetchone()
 
     return row[0] if row else None
+
+
+def forget_item(user_id: int, item_type: str, item_name: str) -> dict:
+    """Delete all feedback for an item and recompute the user's preference summary."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM feedback WHERE user_id = %s AND item_type = %s AND item_name = %s",
+                (user_id, item_type, item_name),
+            )
+        conn.commit()
+
+    return _recompute_summary(user_id)

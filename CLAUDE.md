@@ -78,6 +78,8 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 
 **Slice 6 (done): Auth + user profiles.** Replaced hardcoded `backend/profiles.py` with real accounts. `backend/auth.py` handles bcrypt password hashing and a DB-backed `sessions` table; `get_current_user` is a FastAPI dependency that reads the `session_token` httponly cookie. New `users` and `profiles` tables (`backend/users.py`) hold email/password/name and height_inches/weight_lbs/target_weight_lbs/dietary_restrictions/fitness_goals/notes — BMI is computed on the fly via `compute_bmi`, never stored. The frontend gates on `GET /api/auth/me`: unauthenticated users see `AuthPage` (login/signup toggle); authenticated users see the chat plus a `ProfilePage` for editing their stats. `plans`/`agent_runs`/`feedback`/`preference_summaries` now key on `user_id` instead of `person_name` (migrated via the one-time `backend/migrate_to_auth.py`). Both agents' system prompts include a "stats" block (height/weight/target/BMI) when those fields are set.
 
+**Slice 7 (done): View/correct preference summary (PRD stories 63-64).** `GET /api/preferences` returns the user's `preference_summaries` row (or an empty `EMPTY_SUMMARY` shape if no feedback yet). `ProfilePage` renders a "What Franky Knows About You" section listing `liked_meals`/`disliked_meals`/`liked_workouts`/`disliked_workouts` as removable tags. Clicking the `×` on a tag calls `POST /api/preferences/forget` (`backend/preferences.forget_item`), which deletes that user's `feedback` rows for the `(item_type, item_name)` and recomputes the summary — so a corrected preference won't reappear unless the user re-rates that item.
+
 ### How the meal agent works
 - `meal_agent.run_meal_agent(messages, profile, current_plan)` runs the tool-use loop.
 - Tools: `search_meals` (Spoonacular search), `get_recipe` (full recipe by ID or name), `finalize_meal_plan` (emits structured plan data).
@@ -99,6 +101,7 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 - `_recompute_summary` selects the most recent rating per `(item_type, item_name)` (`SELECT DISTINCT ON ... ORDER BY ... created_at DESC`) and buckets into `liked_meals` / `disliked_meals` / `liked_workouts` / `disliked_workouts`. The `patterns` field exists in the schema but is left empty — deriving it would need model judgment, which is out of scope until there's a reason to add an LLM call here.
 - `/api/chat` calls `get_preference_summary(user_id)` and passes it to `run_coordinator`, which forwards it unchanged to whichever specialist runs.
 - **Diverges from the PRD's `plan_items` table:** plans stay a single JSONB blob. Feedback is keyed by `(user_id, item_type, item_name)` plus an optional `plan_id` for traceability — `item_name` (the dish/exercise name) is what's actually useful for "don't suggest this again."
+- `forget_item(user_id, item_type, item_name)` deletes all `feedback` rows for that `(user_id, item_type, item_name)` and recomputes the summary — this is how a user "corrects" Franky's understanding (PRD story 64): the item drops out of its bucket and won't return unless re-rated.
 
 ### How auth and profiles work
 - `backend/auth.py`: `hash_password`/`verify_password` (bcrypt); `create_session(user_id)` generates a token and stores it in `sessions` with a 30-day expiry; `get_current_user` is a FastAPI dependency that reads the `session_token` cookie, looks up the session, and raises 401 if missing/expired.
@@ -134,7 +137,7 @@ So "no new rows after sending a message" means either it hit the grocery shortcu
 - **Vertical slices over horizontal layers** — ship one feature through all layers at a time.
 
 ## Roadmap (next slices)
-- View/correct preference summary in the UI (PRD stories 63-64)
+- None currently planned — see `docs/IMPLEMENTATION_PLAN.md` for the full build order and decision log.
 
 ## Coding Conventions
 

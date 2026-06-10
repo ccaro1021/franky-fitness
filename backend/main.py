@@ -14,7 +14,7 @@ from backend.auth import (
 )
 from backend.coordinator import run_coordinator
 from backend.database import get_connection, setup_tables
-from backend.preferences import get_preference_summary, record_feedback
+from backend.preferences import EMPTY_SUMMARY, forget_item, get_preference_summary, record_feedback
 from backend.users import build_profile_context, create_user, get_profile, get_user_by_email, update_profile
 from grocery import generate_grocery_list
 
@@ -59,6 +59,11 @@ class FeedbackRequest(BaseModel):
     item_name: str
     rating: str
     note: str | None = None
+
+
+class ForgetPreferenceRequest(BaseModel):
+    item_type: str
+    item_name: str
 
 
 class SignupRequest(BaseModel):
@@ -144,6 +149,16 @@ def put_my_profile(req: ProfileUpdateRequest, user: dict = Depends(get_current_u
         req.fitness_goals,
         req.notes,
     )
+
+
+@app.get("/api/preferences")
+def get_my_preferences(user: dict = Depends(get_current_user)):
+    return get_preference_summary(user["id"]) or EMPTY_SUMMARY
+
+
+@app.post("/api/preferences/forget")
+def forget_my_preference(req: ForgetPreferenceRequest, user: dict = Depends(get_current_user)):
+    return forget_item(user["id"], req.item_type, req.item_name)
 
 
 @app.post("/api/chat")
