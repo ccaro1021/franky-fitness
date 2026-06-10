@@ -11,11 +11,11 @@ export async function sendMessage(messages, person) {
   return res.json()
 }
 
-export async function savePlan(person, plan) {
+export async function savePlan(person, plan, type = 'meal_plan') {
   const res = await fetch('/api/plans', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ person, plan }),
+    body: JSON.stringify({ person, plan, type }),
   })
   if (!res.ok) throw new Error('Failed to save plan')
   return res.json()

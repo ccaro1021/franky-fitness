@@ -5,8 +5,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from backend.coordinator import run_coordinator
 from backend.database import get_connection, setup_tables
-from backend.meal_agent import run_meal_agent
 from backend.profiles import PEOPLE, PROFILES
 from grocery import generate_grocery_list
 
@@ -42,6 +42,7 @@ class ChatRequest(BaseModel):
 class SavePlanRequest(BaseModel):
     person: str
     plan: dict
+    type: str = "meal_plan"
 
 
 @app.get("/api/people")
@@ -56,8 +57,9 @@ def chat(req: ChatRequest):
 
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
 
-    # Inject the most recently saved plan so the agent knows this week's meals
-    current_plan = None
+    # Inject the most recently saved plan of each type so specialists know this week's plans
+    current_meal_plan = None
+    current_workout_plan = None
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -68,31 +70,48 @@ def chat(req: ChatRequest):
             )
             row = cur.fetchone()
             if row:
-                current_plan = row[0]
+                current_meal_plan = row[0]
+
+            cur.execute(
+                """SELECT content FROM plans
+                   WHERE person_name = %s AND type = 'workout_plan'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (req.person,),
+            )
+            row = cur.fetchone()
+            if row:
+                current_workout_plan = row[0]
 
     # Grocery lists are pure code, not an agent call — short-circuit if asked for one
     last_message = messages[-1]["content"].lower() if messages else ""
-    if current_plan and any(kw in last_message for kw in GROCERY_LIST_KEYWORDS):
-        items = generate_grocery_list(current_plan)
+    if current_meal_plan and any(kw in last_message for kw in GROCERY_LIST_KEYWORDS):
+        items = generate_grocery_list(current_meal_plan)
         return {
             "message": "Here's your grocery list for this week's plan!",
             "meal_plan": None,
             "recipe": None,
             "grocery_list": {"items": [item.model_dump() for item in items]},
+            "workout_plan": None,
         }
 
     try:
-        result = run_meal_agent(messages, PROFILES[req.person], current_plan=current_plan)
+        result = run_coordinator(
+            messages,
+            PROFILES[req.person],
+            current_meal_plan=current_meal_plan,
+            current_workout_plan=current_workout_plan,
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """INSERT INTO agent_runs (agent_type, person_name, input_tokens, output_tokens, latency_ms)
-                   VALUES (%s, %s, %s, %s, %s)""",
-                ("meal_agent", req.person, result["input_tokens"], result["output_tokens"], result["latency_ms"]),
-            )
+            for run in result["agent_runs"]:
+                cur.execute(
+                    """INSERT INTO agent_runs (agent_type, person_name, input_tokens, output_tokens, latency_ms)
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    (run["agent_type"], req.person, run["input_tokens"], run["output_tokens"], run["latency_ms"]),
+                )
         conn.commit()
 
     return {
@@ -100,6 +119,7 @@ def chat(req: ChatRequest):
         "meal_plan": result["meal_plan"],
         "recipe": result["recipe"],
         "grocery_list": None,
+        "workout_plan": result["workout_plan"],
     }
 
 
@@ -108,11 +128,14 @@ def save_plan(req: SavePlanRequest):
     if req.person not in PROFILES:
         raise HTTPException(status_code=400, detail=f"Unknown person: {req.person}")
 
+    if req.type not in ("meal_plan", "workout_plan"):
+        raise HTTPException(status_code=400, detail=f"Unknown plan type: {req.type}")
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO plans (person_name, type, content) VALUES (%s, %s, %s) RETURNING id",
-                (req.person, "meal_plan", json.dumps(req.plan)),
+                (req.person, req.type, json.dumps(req.plan)),
             )
             plan_id = cur.fetchone()[0]
         conn.commit()
@@ -121,18 +144,21 @@ def save_plan(req: SavePlanRequest):
 
 
 @app.get("/api/plans")
-def list_plans(person: str):
+def list_plans(person: str, type: str = "meal_plan"):
     if person not in PROFILES:
         raise HTTPException(status_code=400, detail=f"Unknown person: {person}")
+
+    if type not in ("meal_plan", "workout_plan"):
+        raise HTTPException(status_code=400, detail=f"Unknown plan type: {type}")
 
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT id, person_name, content, created_at
                    FROM plans
-                   WHERE person_name = %s AND type = 'meal_plan'
+                   WHERE person_name = %s AND type = %s
                    ORDER BY created_at DESC""",
-                (person,),
+                (person, type),
             )
             rows = cur.fetchall()
 

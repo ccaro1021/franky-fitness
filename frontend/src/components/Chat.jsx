@@ -3,6 +3,7 @@ import { sendMessage } from '../api'
 import MealPlanCard from './MealPlanCard'
 import RecipeCard from './RecipeCard'
 import GroceryListCard from './GroceryListCard'
+import WorkoutPlanCard from './WorkoutPlanCard'
 
 function Message({ msg, person }) {
   const isUser = msg.role === 'user'
@@ -26,6 +27,7 @@ function Message({ msg, person }) {
         {msg.meal_plan && <MealPlanCard plan={msg.meal_plan} person={person} />}
         {msg.recipe && <RecipeCard recipe={msg.recipe} />}
         {msg.grocery_list && <GroceryListCard groceryList={msg.grocery_list} />}
+        {msg.workout_plan && <WorkoutPlanCard plan={msg.workout_plan} person={person} />}
       </div>
     </div>
   )
@@ -35,7 +37,7 @@ export default function Chat({ person }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: `Hi ${person}! I'm Franky, your meal planning coach. What can I help you with this week? I can build you a full weekly meal plan, suggest specific meals, or adjust an existing plan.`,
+      content: `Hi ${person}! I'm Franky, your nutrition and training coach. What can I help you with this week? I can build a meal plan, suggest recipes, generate a grocery list, or put together a workout plan.`,
     },
   ])
   const [input, setInput] = useState('')
@@ -52,7 +54,7 @@ export default function Chat({ person }) {
     setMessages([
       {
         role: 'assistant',
-        content: `Hi ${person}! I'm Franky, your meal planning coach. What can I help you with this week?`,
+        content: `Hi ${person}! I'm Franky, your nutrition and training coach. What can I help you with this week?`,
       },
     ])
     setError(null)
@@ -82,6 +84,7 @@ export default function Chat({ person }) {
           meal_plan: data.meal_plan || null,
           recipe: data.recipe || null,
           grocery_list: data.grocery_list || null,
+          workout_plan: data.workout_plan || null,
         },
       ])
     } catch (e) {

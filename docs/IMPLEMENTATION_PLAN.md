@@ -38,11 +38,12 @@ The structural decisions that shape everything else. Each names the rejected alt
 > - **Revisit if:** A slice needs so much shared infrastructure that building a layer first is genuinely cheaper.
 
 > **Decision 3: Coordinator router over a monolithic agent — two specialists, not three**
-> - **Choice:** A coordinator receives conversational input and routes to one of two LLM specialists — meal planning (which also covers nutrition guidance) and exercise. Grocery list generation is **not an agent**: it's a deterministic code transform of a saved meal plan (sum ingredient quantities across meals, categorize by store section). (Today only the meal agent exists; the router is added when the exercise agent lands — see Build Order.)
-> - **Alternative considered:** The PRD's original three-specialist split (meal, grocery, exercise) with a grocery LLM agent; a separate "nutrition verification" agent that reviews the meal agent's output before it's finalized.
-> - **Why:** Grocery list generation is arithmetic + categorization over data the meal plan already contains — no judgment is required, so an LLM call would add cost, latency, and hallucination risk for zero benefit. A separate nutrition pass is similarly redundant: the meal agent already has per-meal macros from Spoonacular in context and can reason over them directly (e.g., "this week is light on protein at breakfast") in the same call that builds the plan.
-> - **Revisit if:** Grocery categorization needs judgment a static ingredient-name lookup can't handle (ambiguous items, regional naming), or nutrition guidance needs to cross-reference data the meal agent doesn't already have in context — at that point a code lookup table or a second pass becomes worth the cost.
+> - **Choice:** A coordinator receives conversational input and routes to one of two LLM specialists — meal planning (which also covers nutrition guidance) and exercise. Grocery list generation is **not an agent**: it's a deterministic code transform of a saved meal plan (sum ingredient quantities across meals, categorize by store section). The coordinator (`backend/coordinator.py`) classifies the latest user message via a Haiku call with a forced `route` tool call (`tool_choice={"type": "tool", "name": "route"}`, enum `["meal", "exercise"]`), then dispatches to `run_meal_agent` or `run_exercise_agent` with the same conversation history. Ambiguous/general messages default to "meal".
+> - **Alternative considered:** The PRD's original three-specialist split (meal, grocery, exercise) with a grocery LLM agent; a separate "nutrition verification" agent that reviews the meal agent's output before it's finalized; keyword-based routing; a separate endpoint/UI per specialist; an explicit UI mode toggle.
+> - **Why:** Grocery list generation is arithmetic + categorization over data the meal plan already contains — no judgment is required, so an LLM call would add cost, latency, and hallucination risk for zero benefit. A separate nutrition pass is similarly redundant: the meal agent already has per-meal macros from Spoonacular in context and can reason over them directly (e.g., "this week is light on protein at breakfast") in the same call that builds the plan. A real LLM-based router (vs. keyword matching or a UI toggle) was chosen explicitly because a goal of this project is learning multi-agent system design — this is the PRD's coordinator pattern, just narrowed to two specialists.
+> - **Revisit if:** Grocery categorization needs judgment a static ingredient-name lookup can't handle (ambiguous items, regional naming), or nutrition guidance needs to cross-reference data the meal agent doesn't already have in context — at that point a code lookup table or a second pass becomes worth the cost. Also revisit routing if single-message classification proves too coarse (e.g. follow-ups like "make day 3 harder" lose context about which plan they refer to) — at that point pass more conversation history or track the last-active specialist.
 > - **Diverges from PRD:** The PRD (§AI Architecture) specifies a coordinator routing to three sub-agents including a grocery list agent. This plan deliberately narrows that to two LLM specialists plus a code-based grocery transform — noted here as a knowing divergence, same as the no-auth decision above.
+> - **Note:** the router call needs `max_tokens` high enough (200) for Haiku to emit the forced tool call's JSON input — at `max_tokens=20` it returned an empty `input: {}` and silently fell back to the "meal" default with no error.
 
 > **Decision 4: Structured output via tool calls, not JSON mode**
 > - **Choice:** Agents emit structured data by *calling a tool* (`finalize_meal_plan`, `get_recipe`). `_run_tool` returns a `(text_for_agent, structured_data_for_frontend)` tuple; the structured half is surfaced through the API response alongside the agent's prose.
@@ -95,21 +96,22 @@ The *shapes* that move between components. Once two components agree on a contra
 | `search_meals` *(exists)* | query (req), max_calories, min_protein, number | list of meal lines incl. Spoonacular ID + macros; **empty → "No recipes found"** so the agent relaxes filters, doesn't invent |
 | `get_recipe` *(exists)* | spoonacular_id **or** meal_name (fallback) | text (ingredients+steps) for the agent **and** structured recipe for the UI; **failure → "Could not retrieve recipe"** |
 | `finalize_meal_plan` *(exists)* | meals[] (day, meal_type, name, macros, spoonacular_id), notes | ack string; the input *is* the structured plan surfaced to the UI |
-| `search_exercises` *(planned)* | name, body_part, target_muscle, equipment, limit | exercise records; empty → relax filters |
-| `finalize_workout_plan` *(planned)* | workout_days[] (day, focus, exercises[]), rest_days[], notes | ack; input is the structured plan |
+| `search_exercises` *(exists)* | name, body_part, target_muscle, equipment, limit | exercise records incl. ID, target muscle, equipment, secondary muscles; **empty → "No exercises found"** |
+| `finalize_workout_plan` *(exists)* | workout_days[] (day, focus, exercises[] with exercise_id/exercise_name/sets/reps/rest_seconds), rest_days[], notes | ack string; the input *is* the structured plan surfaced to the UI |
+| `route` *(exists, coordinator)* | latest user message | `agent` ∈ {meal, exercise} via forced tool call |
 
 > **Grocery list is not a tool/agent call.** It's a plain Python function over a saved meal plan's ingredients (sum quantities by name+unit, map each name to a store-section category via a static lookup). See `grocery.py` in Component Breakdown.
 
-### 3.3 Agent envelopes (when the coordinator exists)
+### 3.3 Agent envelopes
 
-- **Coordinator → specialist:** profile (restrictions, goals, BMI) + preference summary + conversational input. **Grocery agent additionally** receives the current structured meal plan.
-- **Specialist → coordinator:** prose message + optional structured artifact (MealPlan | WorkoutPlan | GroceryList | Recipe), validated against its schema before returning to the frontend.
+- **Coordinator → specialist:** the full conversation history (unchanged), plus that specialist's own context injection — meal agent gets the saved `meal_plan`, exercise agent gets the saved `workout_plan`. Both also get the person's profile (restrictions, goals, notes).
+- **Specialist → coordinator → API:** prose message + optional structured artifact (`meal_plan` | `recipe` | `grocery_list` | `workout_plan`), each null unless that turn produced it. `run_coordinator` also returns `agent_runs`: a list of `{agent_type, input_tokens, output_tokens, latency_ms}` — one entry for the routing call (`agent_type="coordinator"`) and one for whichever specialist ran — both logged to `agent_runs`.
 
 ### 3.4 Output schemas the user sees
 - **MealPlan:** meals grouped by day → meal_type, with per-meal macros (rendered by `MealPlanCard`).
 - **Recipe:** name, per-serving macros, ingredients[], numbered steps (rendered by `RecipeCard`).
-- **GroceryList** *(planned):* items[] with {name, total_quantity, unit, category}, category ∈ {produce, protein, dairy, pantry, frozen}.
-- **WorkoutPlan** *(planned):* days[] → {focus, exercises[] (sets, reps/duration, RPE, rest)}, warm-up + cooldown per day.
+- **GroceryList:** items[] with {name, total_quantity, unit, category}, category ∈ {produce, protein, dairy, pantry, frozen} (rendered by `GroceryListCard`).
+- **WorkoutPlan:** workout_days[] → {day, focus, exercises[] (exercise_id, exercise_name, sets, reps, rest_seconds)}, rest_days[], notes (rendered by `WorkoutPlanCard`).
 
 ---
 
@@ -122,11 +124,11 @@ The *shapes* that move between components. Once two components agree on a contra
 | `backend/profiles.py` *(exists)* | Hold Chris & Kaitlyn's profile context (temporary stand-in for the profiles table) | — |
 | `backend/database.py` *(exists)* | Postgres connection + table setup | DATABASE_URL |
 | `backend/meal_agent.py` *(exists)* | Produce meal plans & recipes via tool-use loop over Spoonacular | spoonacular, profiles, plan context |
-| `backend/main.py` *(exists)* | HTTP routes; inject saved-plan context; log agent_runs | meal_agent, database, profiles |
-| `frontend/` Chat + cards *(exists)* | Render the conversation and structured artifacts; person selector | backend API |
-| Coordinator *(planned)* | Route input to meal or exercise specialist | meal_agent, exercise_agent |
-| `grocery.py` *(planned)* | Pure code: sum ingredient quantities across a meal plan and categorize by store section (no LLM call) | a saved meal plan, static category lookup |
-| `exercise_agent.py` *(planned)* | Produce workout plans over ExerciseDB | exercisedb, profiles |
+| `backend/exercise_agent.py` *(exists)* | Produce workout plans via tool-use loop over ExerciseDB | exercisedb, profiles, plan context |
+| `backend/coordinator.py` *(exists)* | Classify each turn (Haiku, forced `route` tool call) and dispatch to meal or exercise specialist | meal_agent, exercise_agent |
+| `grocery.py` *(exists)* | Pure code: sum ingredient quantities across a meal plan and categorize by store section (no LLM call) | a saved meal plan, static category lookup |
+| `backend/main.py` *(exists)* | HTTP routes; inject saved meal/workout plan context; log agent_runs for coordinator + specialist | coordinator, database, profiles |
+| `frontend/` Chat + cards *(exists)* | Render the conversation and structured artifacts (meal plan, recipe, grocery list, workout plan); person selector | backend API |
 | Feedback + preference summary *(planned)* | Store thumbs up/down; distill into a per-person summary | feedback table |
 
 **Entry points:** backend `uvicorn backend.main:app`; frontend `npm run dev` (Vite proxies `/api` → `:8000`).
@@ -140,10 +142,9 @@ Dependencies first, scariest unknowns early, each step ends in something runnabl
 1. ☑ **Meal planning end-to-end** *(Slice 1)* — proves the whole stack: agent tool-loop → API → React card → Postgres save.
 2. ☑ **Recipe retrieval** *(Slice 2)* — injects the saved plan into the prompt; `get_recipe` resolves a meal to its ID and renders a `RecipeCard`. Proves plan-as-context.
 3. ☑ **Grocery list from a saved meal plan** *(Slice 3)* — *pure code (`grocery.py`): sum ingredient quantities across the week's meals and categorize by store section via a static lookup. No new agent, no LLM call.*
-4. ☐ **Exercise agent** — *port the workout logic already prototyped in `franky.py`/`exercisedb.py` into the web app; second (and final) LLM specialist.*
-5. ☐ **Coordinator routing** — *now there are two specialists to route between; add the router and a single chat entry that dispatches by intent.*
-6. ☐ **Feedback + preference summaries** — *thumbs up/down on meals/workouts → derive a per-person summary → inject it. Personalization comes after generic plans are solid.*
-7. ☐ **Auth + profiles table** — *replace hardcoded `profiles.py` with users/profiles, swap `person_name` strings for `user_id` FKs. Last, because everything works single-household first.*
+4. ☑ **Exercise agent + coordinator routing** *(Slice 4)* — *`backend/exercise_agent.py` ports the workout logic from `franky.py`/`exercisedb.py` into the web app as the second LLM specialist; `backend/coordinator.py` adds a Haiku-based router (forced `route` tool call) that classifies each turn and dispatches to meal or exercise. `WorkoutPlanCard` renders the result; workout plans persist as `type='workout_plan'` rows.*
+5. ☐ **Feedback + preference summaries** — *thumbs up/down on meals/workouts → derive a per-person summary → inject it. Personalization comes after generic plans are solid.*
+6. ☐ **Auth + profiles table** — *replace hardcoded `profiles.py` with users/profiles, swap `person_name` strings for `user_id` FKs. Last, because everything works single-household first.*
 
 **Riskiest assumption, tested earliest:** that an agent plans *well* over API lookups (not just *runs*). Slices 1–2 already exercise this; the eval suite (§7) is what turns "seems fine" into "passes."
 
@@ -175,7 +176,9 @@ Every criterion is checkable — by code, by a model grading a transcript, or by
 
 **Grocery list generation passes when** *(its slice):* every meal-plan ingredient appears; duplicates are consolidated with combined quantities; every item has a store-section category — *code check (no model grading needed — it's pure code)*
 
-**Exercise agent passes when** *(its slice):* day count matches the request; each session has warm-up/work/cooldown; each exercise has sets, reps/duration, RPE; flagged-injury exercises are absent — *code + model-graded*
+**Exercise agent passes when:** day count matches the request; each exercise has sets, reps/duration, and rest_seconds; every `exercise_id` in a finalized plan was returned by a `search_exercises` call in that session; flagged-injury exercises are absent — *code + model-graded*
+
+**Coordinator passes when:** meal-related messages route to the meal agent and exercise-related messages route to the exercise agent; ambiguous/general messages don't crash either specialist — *model-graded check on a labeled set of sample messages*
 
 **Regression / whole system:** run the eval suite (modeled on the existing `eval_franky.py` pattern) before exposing Franky to anyone beyond Chris & Kaitlyn. **Minimum bar: pass^3** (succeeds on all of 3 runs) on each agent's core behaviors — a product whose value is consistency can't ship on single-run luck.
 
@@ -192,3 +195,4 @@ Every criterion is checkable — by code, by a model grading a transcript, or by
 - **2026-06-09** — Shipped Slice 2 (**recipe retrieval**): inject the most recent saved plan into the agent prompt each turn; `get_recipe` resolves a meal to its Spoonacular ID and the UI renders a `RecipeCard`. Confirmed the plan-as-context pattern that personalization (Decision 5) will build on.
 - **2026-06-09** — **Dropped the grocery agent and a separate nutrition-verification agent.** Grocery list generation is pure code (`grocery.py`) — summing ingredient quantities and categorizing by store section needs no model judgment. Nutrition guidance is handled by the meal agent directly, since it already has per-meal macros from Spoonacular in context. The system now has two LLM specialists (meal+nutrition, exercise) instead of the PRD's three. See revised Decision 3.
 - **2026-06-09** — Shipped Slice 3 (**grocery list generation**): `finalize_meal_plan` now fetches and stores each meal's full ingredient list (one Spoonacular `get_recipe` call per meal with a known ID). `grocery.py` sums quantities and categorizes by store section via a static keyword lookup — pure code, no LLM. Triggered via a button on `MealPlanCard` (`GET /api/plans/{id}/grocery-list`) or by chat intent ("grocery list" / "shopping list" short-circuits `/api/chat` before the agent runs).
+- **2026-06-10** — Shipped Slice 4 (**exercise agent + coordinator routing**): chose the real LLM-based coordinator (Option C) over keyword routing, a separate endpoint/UI, or a UI mode toggle, since a stated project goal is learning multi-agent system design. `backend/exercise_agent.py` mirrors `meal_agent.py` (search_exercises + finalize_workout_plan tools, profile + saved-workout-plan injection). `backend/coordinator.py` classifies the latest user message via Haiku with a forced `route` tool call and dispatches to meal or exercise. `/api/chat` now fetches both the latest meal_plan and workout_plan, logs one `agent_runs` row for the coordinator and one for the chosen specialist. `/api/plans` (POST/GET) generalized with a `type` field (`meal_plan` | `workout_plan`). New `WorkoutPlanCard` renders the plan with a Save button. **Caught during testing:** the router's `max_tokens=20` was too small for Haiku to emit the forced tool call's input — it returned `{}` and silently defaulted to "meal" with no error. Fixed by raising `max_tokens` to 200.
