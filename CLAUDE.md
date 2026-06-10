@@ -45,17 +45,18 @@ franky-fitness/
 ├── docs/
 │   └── franky-fitness-prd.md   # Full product requirements doc
 ├── backend/              # FastAPI application
-│   ├── main.py           # API routes: /api/chat, /api/plans, /api/plans/{id}/grocery-list, /api/people
+│   ├── main.py           # API routes: /api/chat, /api/plans, /api/plans/{id}/grocery-list, /api/feedback, /api/people
 │   ├── coordinator.py    # Routes each turn to the meal or exercise specialist (Haiku classifier)
 │   ├── meal_agent.py     # Meal planning agent — tools, prompt builder, tool-use loop
 │   ├── exercise_agent.py # Exercise planning agent — tools, prompt builder, tool-use loop
-│   ├── database.py       # psycopg2 connection + table setup (plans, agent_runs)
+│   ├── preferences.py    # Pure code: records feedback and derives a per-person preference summary
+│   ├── database.py       # psycopg2 connection + table setup (plans, agent_runs, feedback, preference_summaries)
 │   └── profiles.py       # Hardcoded Chris & Kaitlyn profiles (no auth yet)
 ├── frontend/             # Vite + React + Tailwind app
 │   └── src/
 │       ├── App.jsx       # Header + person selector (Chris / Kaitlyn)
 │       ├── api.js        # fetch wrappers for the backend
-│       └── components/   # Chat.jsx, MealPlanCard.jsx, RecipeCard.jsx, GroceryListCard.jsx, WorkoutPlanCard.jsx
+│       └── components/   # Chat.jsx, MealPlanCard.jsx, RecipeCard.jsx, GroceryListCard.jsx, WorkoutPlanCard.jsx, FeedbackButtons.jsx
 └── venv/                 # Virtual environment (gitignored)
 ```
 
@@ -70,6 +71,8 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 **Slice 3 (done): Grocery list generation.** When `finalize_meal_plan` is called, each meal's full ingredient list is fetched from Spoonacular and stored alongside the plan. `grocery.py` is pure code — no agent, no LLM call — that sums ingredient quantities across a saved plan and categorizes each item by store section via a static keyword lookup. Triggered two ways: (1) a "Grocery List" button on a saved `MealPlanCard` calls `GET /api/plans/{id}/grocery-list`, or (2) typing "grocery list" / "shopping list" in chat — `/api/chat` detects this intent and short-circuits to `generate_grocery_list()` before reaching the agent. Either way, the frontend renders a `GroceryListCard` grouped by category.
 
 **Slice 4 (done): Exercise agent + coordinator routing.** `backend/exercise_agent.py` is the second LLM specialist, mirroring the meal agent's structure over ExerciseDB. `backend/coordinator.py` classifies each turn — every `/api/chat` call first sends the latest user message to Haiku with a forced `route` tool call (`agent` ∈ `{"meal", "exercise"}`, default "meal" if ambiguous), then dispatches the full conversation to the chosen specialist. The frontend renders a `WorkoutPlanCard` for finalized workout plans, with a "Save Plan" button that persists as `type='workout_plan'`.
+
+**Slice 5 (done): Feedback + preference summaries.** Once a meal plan or workout plan is saved, each meal/exercise row gets 👍/👎 `FeedbackButtons` (with an optional "+ note") that call `POST /api/feedback`. `backend/preferences.py` is pure code — no agent, no LLM call — that records the rating to the `feedback` table and recomputes a `preference_summaries` row: for each `(item_type, item_name)`, the most recent rating wins, bucketed into `liked_meals` / `disliked_meals` / `liked_workouts` / `disliked_workouts`. `/api/chat` fetches this summary and passes it to whichever specialist runs; both `_build_system_prompt` functions append a "Known preferences" block when any bucket is non-empty.
 
 ### How the meal agent works
 - `meal_agent.run_meal_agent(messages, profile, current_plan)` runs the tool-use loop.
@@ -86,6 +89,12 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 - `coordinator.run_coordinator(messages, profile, current_meal_plan, current_workout_plan)` classifies the latest user message via `claude-haiku-4-5-20251001` with `tool_choice` forced to a `route` tool (enum `["meal", "exercise"]`), then calls `run_meal_agent` or `run_exercise_agent` with the full conversation.
 - **Important:** the routing call needs `max_tokens >= ~50` — at `max_tokens=20` Haiku returns an empty tool input and the code silently falls back to "meal" with no error. Currently set to 200.
 - Returns `agent_runs`: one entry for the coordinator call and one for the chosen specialist; `/api/chat` logs both to the `agent_runs` table with `agent_type` ∈ `{"coordinator", "meal_agent", "exercise_agent"}`.
+
+### How feedback and preferences work
+- `preferences.record_feedback(person_name, plan_id, item_type, item_name, rating, note)` inserts a row into `feedback`, then calls `_recompute_summary` and upserts `preference_summaries`.
+- `_recompute_summary` selects the most recent rating per `(item_type, item_name)` (`SELECT DISTINCT ON ... ORDER BY ... created_at DESC`) and buckets into `liked_meals` / `disliked_meals` / `liked_workouts` / `disliked_workouts`. The `patterns` field exists in the schema but is left empty — deriving it would need model judgment, which is out of scope until there's a reason to add an LLM call here.
+- `/api/chat` calls `get_preference_summary(person)` and passes it to `run_coordinator`, which forwards it unchanged to whichever specialist runs.
+- **Diverges from the PRD's `plan_items` table:** plans stay a single JSONB blob. Feedback is keyed by `(person_name, item_type, item_name)` plus an optional `plan_id` for traceability — `item_name` (the dish/exercise name) is what's actually useful for "don't suggest this again."
 
 ### Running the app locally
 ```bash
@@ -115,7 +124,7 @@ So "no new rows after sending a message" means either it hit the grocery shortcu
 - **Vertical slices over horizontal layers** — ship one feature through all layers at a time.
 
 ## Roadmap (next slices)
-- Feedback (thumbs up/down) + preference summaries
+- View/correct preference summary in the UI (PRD stories 63-64)
 - Email/password auth to replace hardcoded profiles
 
 ## Coding Conventions

@@ -1,16 +1,19 @@
 import { useState } from 'react'
 import { savePlan } from '../api'
+import FeedbackButtons from './FeedbackButtons'
 
 export default function WorkoutPlanCard({ plan, person }) {
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [planId, setPlanId] = useState(null)
 
   async function handleSave() {
     setSaving(true)
     setError(null)
     try {
-      await savePlan(person, plan, 'workout_plan')
+      const { id } = await savePlan(person, plan, 'workout_plan')
+      setPlanId(id)
       setSaved(true)
     } catch (e) {
       setError('Failed to save. Try again.')
@@ -47,9 +50,19 @@ export default function WorkoutPlanCard({ plan, person }) {
             </div>
             <ul className="text-sm text-gray-700 space-y-1">
               {day.exercises.map((ex, j) => (
-                <li key={j} className="flex justify-between gap-4">
+                <li key={j} className="flex justify-between items-center gap-4">
                   <span>{ex.exercise_name}</span>
-                  <span className="text-gray-500 shrink-0">{ex.sets} × {ex.reps} · rest {ex.rest_seconds}s</span>
+                  <span className="flex items-center gap-3 shrink-0">
+                    <span className="text-gray-500">{ex.sets} × {ex.reps} · rest {ex.rest_seconds}s</span>
+                    {saved && (
+                      <FeedbackButtons
+                        person={person}
+                        planId={planId}
+                        itemType="exercise"
+                        itemName={ex.exercise_name}
+                      />
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>

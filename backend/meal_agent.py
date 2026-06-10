@@ -127,7 +127,21 @@ def _format_plan_for_prompt(plan: dict) -> str:
     return "\n".join(lines)
 
 
-def _build_system_prompt(profile: dict, current_plan: dict | None = None) -> str:
+def _format_preferences_for_prompt(preference_summary: dict) -> str:
+    lines = []
+    if preference_summary.get("liked_meals"):
+        lines.append("- Liked meals (suggest more like these): " + ", ".join(preference_summary["liked_meals"]))
+    if preference_summary.get("disliked_meals"):
+        lines.append(
+            "- Disliked meals (avoid these and very similar dishes): "
+            + ", ".join(preference_summary["disliked_meals"])
+        )
+    return "\n".join(lines)
+
+
+def _build_system_prompt(
+    profile: dict, current_plan: dict | None = None, preference_summary: dict | None = None
+) -> str:
     restrictions = ", ".join(profile["dietary_restrictions"]) if profile["dietary_restrictions"] else "none"
     goals = ", ".join(profile["fitness_goals"])
     notes = profile.get("notes", "")
@@ -161,6 +175,11 @@ You are a coach, not a doctor. For medical concerns, recommend consulting a heal
 When {profile['name']} asks how to make a meal, use get_recipe with that meal's Spoonacular ID from the plan above. If they refer to a meal by day or type (e.g. "Monday's dinner"), look up the correct ID from the plan."""
     else:
         prompt += f"\n\n{profile['name']} has no saved meal plan yet this week."
+
+    if preference_summary:
+        preferences_text = _format_preferences_for_prompt(preference_summary)
+        if preferences_text:
+            prompt += f"\n\nKnown preferences for {profile['name']} (from past feedback):\n{preferences_text}"
 
     return prompt
 
@@ -245,6 +264,7 @@ def run_meal_agent(
     messages: list[dict],
     profile: dict,
     current_plan: dict | None = None,
+    preference_summary: dict | None = None,
 ) -> dict:
     """
     Run the meal planning agent for one conversation turn.
@@ -253,6 +273,7 @@ def run_meal_agent(
         messages: Full conversation history (role/content pairs from the frontend)
         profile: User profile from profiles.py
         current_plan: Most recently saved meal plan for this person, injected as context
+        preference_summary: Liked/disliked meals derived from past feedback, injected as context
 
     Returns:
         message, meal_plan, recipe, input_tokens, output_tokens, latency_ms
@@ -263,7 +284,7 @@ def run_meal_agent(
     meal_plan: dict | None = None
     recipe: dict | None = None
 
-    system = _build_system_prompt(profile, current_plan)
+    system = _build_system_prompt(profile, current_plan, preference_summary)
     history = list(messages)
 
     try:

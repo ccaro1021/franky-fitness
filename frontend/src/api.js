@@ -32,3 +32,20 @@ export async function getGroceryList(planId) {
   if (!res.ok) throw new Error('Failed to load grocery list')
   return res.json()
 }
+
+export async function submitFeedback(person, planId, itemType, itemName, rating, note = null) {
+  const res = await fetch('/api/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      person,
+      plan_id: planId,
+      item_type: itemType,
+      item_name: itemName,
+      rating,
+      note,
+    }),
+  })
+  if (!res.ok) throw new Error('Failed to submit feedback')
+  return res.json()
+}

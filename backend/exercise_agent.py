@@ -122,7 +122,23 @@ def _format_plan_for_prompt(plan: dict) -> str:
     return "\n".join(lines)
 
 
-def _build_system_prompt(profile: dict, current_plan: dict | None = None) -> str:
+def _format_preferences_for_prompt(preference_summary: dict) -> str:
+    lines = []
+    if preference_summary.get("liked_workouts"):
+        lines.append(
+            "- Liked exercises (include more like these): " + ", ".join(preference_summary["liked_workouts"])
+        )
+    if preference_summary.get("disliked_workouts"):
+        lines.append(
+            "- Disliked exercises (avoid these and very similar movements): "
+            + ", ".join(preference_summary["disliked_workouts"])
+        )
+    return "\n".join(lines)
+
+
+def _build_system_prompt(
+    profile: dict, current_plan: dict | None = None, preference_summary: dict | None = None
+) -> str:
     goals = ", ".join(profile["fitness_goals"])
     notes = profile.get("notes", "")
 
@@ -151,6 +167,11 @@ You are a coach, not a doctor. For injuries or medical concerns, recommend consu
 If {profile['name']} asks to adjust the plan, modify this one rather than starting over."""
     else:
         prompt += f"\n\n{profile['name']} has no saved workout plan yet."
+
+    if preference_summary:
+        preferences_text = _format_preferences_for_prompt(preference_summary)
+        if preferences_text:
+            prompt += f"\n\nKnown preferences for {profile['name']} (from past feedback):\n{preferences_text}"
 
     return prompt
 
@@ -191,6 +212,7 @@ def run_exercise_agent(
     messages: list[dict],
     profile: dict,
     current_plan: dict | None = None,
+    preference_summary: dict | None = None,
 ) -> dict:
     """
     Run the exercise planning agent for one conversation turn.
@@ -199,6 +221,7 @@ def run_exercise_agent(
         messages: Full conversation history (role/content pairs from the frontend)
         profile: User profile from profiles.py
         current_plan: Most recently saved workout plan for this person, injected as context
+        preference_summary: Liked/disliked exercises derived from past feedback, injected as context
 
     Returns:
         message, workout_plan, input_tokens, output_tokens, latency_ms
@@ -208,7 +231,7 @@ def run_exercise_agent(
     output_tokens = 0
     workout_plan: dict | None = None
 
-    system = _build_system_prompt(profile, current_plan)
+    system = _build_system_prompt(profile, current_plan, preference_summary)
     history = list(messages)
 
     try:

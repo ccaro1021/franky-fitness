@@ -69,6 +69,7 @@ def run_coordinator(
     profile: dict,
     current_meal_plan: dict | None = None,
     current_workout_plan: dict | None = None,
+    preference_summary: dict | None = None,
 ) -> dict:
     """
     Classify the latest message and dispatch to the meal or exercise specialist.
@@ -81,11 +82,15 @@ def run_coordinator(
     routing_latency_ms = round((time.time() - start) * 1000)
 
     if agent == "exercise":
-        result = run_exercise_agent(messages, profile, current_plan=current_workout_plan)
+        result = run_exercise_agent(
+            messages, profile, current_plan=current_workout_plan, preference_summary=preference_summary
+        )
         result["meal_plan"] = None
         result["recipe"] = None
     else:
-        result = run_meal_agent(messages, profile, current_plan=current_meal_plan)
+        result = run_meal_agent(
+            messages, profile, current_plan=current_meal_plan, preference_summary=preference_summary
+        )
         result["workout_plan"] = None
 
     result["agent_runs"] = [

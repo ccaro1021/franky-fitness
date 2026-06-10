@@ -80,12 +80,12 @@ The *shapes* that move between components. Once two components agree on a contra
 **Exists today** (`backend/database.py`):
 - **plans:** id, person_name, type (`meal_plan` | `grocery_list` | `workout_plan`), content (JSONB), created_at
 - **agent_runs:** id, agent_type, person_name, input_tokens, output_tokens, latency_ms, created_at
+- **feedback:** id, person_name, plan_id (FK to plans, nullable), item_type (`meal`|`exercise`), item_name, rating (`positive`|`negative`), note (nullable), created_at
+- **preference_summaries:** person_name (PK), summary (JSONB: liked_meals/disliked_meals/liked_workouts/disliked_workouts/patterns), updated_at
 
 **Planned** (from PRD §Data Models — add when their slice lands, not before):
 - **users:** id, email, password_hash, name, created_at *(auth slice)*
 - **profiles:** id, user_id (FK), height, weight, bmi, dietary_restrictions (JSON), fitness_goals (JSON), updated_at *(replaces hardcoded `profiles.py`)*
-- **feedback:** id, person/user_id, plan_item_id, rating (`positive`|`negative`), note (nullable), created_at
-- **preference_summaries:** id, user_id, summary (JSON: liked/disliked meals & workouts, patterns[]), updated_at
 
 > **Migration note:** `plans.person_name` and `agent_runs.person_name` are string keys today because there are no user rows. When auth lands, these become `user_id` FKs. Keep this in mind before adding more `person_name`-keyed tables.
 
@@ -101,6 +101,8 @@ The *shapes* that move between components. Once two components agree on a contra
 | `route` *(exists, coordinator)* | latest user message | `agent` ∈ {meal, exercise} via forced tool call |
 
 > **Grocery list is not a tool/agent call.** It's a plain Python function over a saved meal plan's ingredients (sum quantities by name+unit, map each name to a store-section category via a static lookup). See `grocery.py` in Component Breakdown.
+
+> **Feedback is also not a tool/agent call.** `POST /api/feedback` (item_type, item_name, rating, note) is recorded directly via `backend/preferences.py`, which recomputes a `preference_summaries` row in pure code. See Decision Log entry for 2026-06-10 (Slice 5).
 
 ### 3.3 Agent envelopes
 
@@ -129,7 +131,7 @@ The *shapes* that move between components. Once two components agree on a contra
 | `grocery.py` *(exists)* | Pure code: sum ingredient quantities across a meal plan and categorize by store section (no LLM call) | a saved meal plan, static category lookup |
 | `backend/main.py` *(exists)* | HTTP routes; inject saved meal/workout plan context; log agent_runs for coordinator + specialist | coordinator, database, profiles |
 | `frontend/` Chat + cards *(exists)* | Render the conversation and structured artifacts (meal plan, recipe, grocery list, workout plan); person selector | backend API |
-| Feedback + preference summary *(planned)* | Store thumbs up/down; distill into a per-person summary | feedback table |
+| `backend/preferences.py` *(exists)* | Pure code: record feedback rows and recompute the per-person preference summary (no LLM call) | feedback table |
 
 **Entry points:** backend `uvicorn backend.main:app`; frontend `npm run dev` (Vite proxies `/api` → `:8000`).
 
@@ -143,7 +145,7 @@ Dependencies first, scariest unknowns early, each step ends in something runnabl
 2. ☑ **Recipe retrieval** *(Slice 2)* — injects the saved plan into the prompt; `get_recipe` resolves a meal to its ID and renders a `RecipeCard`. Proves plan-as-context.
 3. ☑ **Grocery list from a saved meal plan** *(Slice 3)* — *pure code (`grocery.py`): sum ingredient quantities across the week's meals and categorize by store section via a static lookup. No new agent, no LLM call.*
 4. ☑ **Exercise agent + coordinator routing** *(Slice 4)* — *`backend/exercise_agent.py` ports the workout logic from `franky.py`/`exercisedb.py` into the web app as the second LLM specialist; `backend/coordinator.py` adds a Haiku-based router (forced `route` tool call) that classifies each turn and dispatches to meal or exercise. `WorkoutPlanCard` renders the result; workout plans persist as `type='workout_plan'` rows.*
-5. ☐ **Feedback + preference summaries** — *thumbs up/down on meals/workouts → derive a per-person summary → inject it. Personalization comes after generic plans are solid.*
+5. ☑ **Feedback + preference summaries** *(Slice 5)* — *thumbs up/down (+ optional note) on saved meals/exercises via `FeedbackButtons`, recorded through `POST /api/feedback`. `backend/preferences.py` recomputes a per-person summary in pure code (most-recent rating per item wins) and `/api/chat` injects it into both specialists' system prompts.*
 6. ☐ **Auth + profiles table** — *replace hardcoded `profiles.py` with users/profiles, swap `person_name` strings for `user_id` FKs. Last, because everything works single-household first.*
 
 **Riskiest assumption, tested earliest:** that an agent plans *well* over API lookups (not just *runs*). Slices 1–2 already exercise this; the eval suite (§7) is what turns "seems fine" into "passes."
@@ -196,3 +198,4 @@ Every criterion is checkable — by code, by a model grading a transcript, or by
 - **2026-06-09** — **Dropped the grocery agent and a separate nutrition-verification agent.** Grocery list generation is pure code (`grocery.py`) — summing ingredient quantities and categorizing by store section needs no model judgment. Nutrition guidance is handled by the meal agent directly, since it already has per-meal macros from Spoonacular in context. The system now has two LLM specialists (meal+nutrition, exercise) instead of the PRD's three. See revised Decision 3.
 - **2026-06-09** — Shipped Slice 3 (**grocery list generation**): `finalize_meal_plan` now fetches and stores each meal's full ingredient list (one Spoonacular `get_recipe` call per meal with a known ID). `grocery.py` sums quantities and categorizes by store section via a static keyword lookup — pure code, no LLM. Triggered via a button on `MealPlanCard` (`GET /api/plans/{id}/grocery-list`) or by chat intent ("grocery list" / "shopping list" short-circuits `/api/chat` before the agent runs).
 - **2026-06-10** — Shipped Slice 4 (**exercise agent + coordinator routing**): chose the real LLM-based coordinator (Option C) over keyword routing, a separate endpoint/UI, or a UI mode toggle, since a stated project goal is learning multi-agent system design. `backend/exercise_agent.py` mirrors `meal_agent.py` (search_exercises + finalize_workout_plan tools, profile + saved-workout-plan injection). `backend/coordinator.py` classifies the latest user message via Haiku with a forced `route` tool call and dispatches to meal or exercise. `/api/chat` now fetches both the latest meal_plan and workout_plan, logs one `agent_runs` row for the coordinator and one for the chosen specialist. `/api/plans` (POST/GET) generalized with a `type` field (`meal_plan` | `workout_plan`). New `WorkoutPlanCard` renders the plan with a Save button. **Caught during testing:** the router's `max_tokens=20` was too small for Haiku to emit the forced tool call's input — it returned `{}` and silently defaulted to "meal" with no error. Fixed by raising `max_tokens` to 200.
+- **2026-06-10** — Shipped Slice 5 (**feedback + preference summaries**): saved `MealPlanCard`/`WorkoutPlanCard` rows now have 👍/👎 `FeedbackButtons` (with an optional note) calling `POST /api/feedback`. `backend/preferences.py` is **pure code** (Decision 3 precedent) — it inserts into `feedback` and recomputes `preference_summaries` by taking the most-recent rating per `(item_type, item_name)` and bucketing into `liked_meals`/`disliked_meals`/`liked_workouts`/`disliked_workouts`. `/api/chat` fetches this summary and threads it through `run_coordinator` to whichever specialist runs; both agents append a "Known preferences" block to their system prompt when any bucket is non-empty. **Two deliberate scope cuts:** (1) the PRD's `patterns: []` field is left empty — deriving free-text patterns needs model judgment, deferred until there's a concrete reason to add an LLM call here; (2) no "view/correct my preferences" UI yet (PRD stories 63-64) — feedback collection and prompt injection only. **Diverges from the PRD's `plan_items` table:** plans remain a single JSONB blob; feedback is keyed by `(person_name, item_type, item_name)` plus an optional `plan_id` for traceability, since the dish/exercise name — not a row ID — is what's useful for "don't suggest this again."

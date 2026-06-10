@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from backend.coordinator import run_coordinator
 from backend.database import get_connection, setup_tables
+from backend.preferences import get_preference_summary, record_feedback
 from backend.profiles import PEOPLE, PROFILES
 from grocery import generate_grocery_list
 
@@ -43,6 +44,15 @@ class SavePlanRequest(BaseModel):
     person: str
     plan: dict
     type: str = "meal_plan"
+
+
+class FeedbackRequest(BaseModel):
+    person: str
+    plan_id: int | None = None
+    item_type: str
+    item_name: str
+    rating: str
+    note: str | None = None
 
 
 @app.get("/api/people")
@@ -94,12 +104,15 @@ def chat(req: ChatRequest):
             "workout_plan": None,
         }
 
+    preference_summary = get_preference_summary(req.person)
+
     try:
         result = run_coordinator(
             messages,
             PROFILES[req.person],
             current_meal_plan=current_meal_plan,
             current_workout_plan=current_workout_plan,
+            preference_summary=preference_summary,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
@@ -192,6 +205,23 @@ def get_plan(plan_id: int):
         "content": row[2],
         "created_at": row[3].isoformat(),
     }
+
+
+@app.post("/api/feedback")
+def submit_feedback(req: FeedbackRequest):
+    if req.person not in PROFILES:
+        raise HTTPException(status_code=400, detail=f"Unknown person: {req.person}")
+
+    if req.item_type not in ("meal", "exercise"):
+        raise HTTPException(status_code=400, detail=f"Unknown item_type: {req.item_type}")
+
+    if req.rating not in ("positive", "negative"):
+        raise HTTPException(status_code=400, detail=f"Unknown rating: {req.rating}")
+
+    summary = record_feedback(
+        req.person, req.plan_id, req.item_type, req.item_name, req.rating, req.note
+    )
+    return {"summary": summary}
 
 
 @app.get("/api/plans/{plan_id}/grocery-list")

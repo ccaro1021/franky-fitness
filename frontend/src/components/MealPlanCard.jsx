@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { savePlan, getGroceryList } from '../api'
 import GroceryListCard from './GroceryListCard'
+import FeedbackButtons from './FeedbackButtons'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const MEAL_ORDER = ['breakfast', 'lunch', 'dinner', 'snack']
@@ -89,6 +90,7 @@ export default function MealPlanCard({ plan, person }) {
               <th className="px-4 py-2 font-medium text-right">Protein</th>
               <th className="px-4 py-2 font-medium text-right">Carbs</th>
               <th className="px-4 py-2 font-medium text-right">Fat</th>
+              <th className="px-4 py-2 font-medium text-right">Feedback</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -108,6 +110,16 @@ export default function MealPlanCard({ plan, person }) {
                   <td className="px-4 py-2.5 text-right text-blue-600 font-medium">{meal.protein_g}g</td>
                   <td className="px-4 py-2.5 text-right text-amber-600">{meal.carbs_g}g</td>
                   <td className="px-4 py-2.5 text-right text-gray-500">{meal.fat_g}g</td>
+                  <td className="px-4 py-2.5 text-right">
+                    {saved && (
+                      <FeedbackButtons
+                        person={person}
+                        planId={planId}
+                        itemType="meal"
+                        itemName={meal.name}
+                      />
+                    )}
+                  </td>
                 </tr>
               ))
             )}

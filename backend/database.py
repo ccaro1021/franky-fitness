@@ -35,4 +35,23 @@ def setup_tables():
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 )
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS feedback (
+                    id SERIAL PRIMARY KEY,
+                    person_name VARCHAR(50) NOT NULL,
+                    plan_id INTEGER REFERENCES plans(id),
+                    item_type VARCHAR(20) NOT NULL,
+                    item_name VARCHAR(200) NOT NULL,
+                    rating VARCHAR(10) NOT NULL,
+                    note TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS preference_summaries (
+                    person_name VARCHAR(50) PRIMARY KEY,
+                    summary JSONB NOT NULL,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
         conn.commit()
