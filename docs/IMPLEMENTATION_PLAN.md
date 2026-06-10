@@ -37,11 +37,12 @@ The structural decisions that shape everything else. Each names the rejected alt
 > - **Why:** Each slice is runnable and demoable; the architecture gets proven early on something real; direction is cheap to change between slices.
 > - **Revisit if:** A slice needs so much shared infrastructure that building a layer first is genuinely cheaper.
 
-> **Decision 3: Coordinator router over a monolithic agent**
-> - **Choice:** A coordinator receives conversational input and routes to one of three specialists — meal, grocery, exercise. The grocery agent always receives a meal plan as input. (Today only the meal agent exists; the router is added when the second agent lands — see Build Order.)
-> - **Alternative considered:** One agent with all tools and one giant system prompt.
-> - **Why:** Smaller per-agent prompts behave more reliably; failures isolate and debug cleanly; the boundaries mirror how the domains actually differ (meals are daily-combinatorial, workouts are weekly-structural, grocery is a deterministic-ish transform of a meal plan).
-> - **Revisit if:** Cross-domain features ("high-protein meals on lifting days") force so much handoff that the boundary costs more than it saves.
+> **Decision 3: Coordinator router over a monolithic agent — two specialists, not three**
+> - **Choice:** A coordinator receives conversational input and routes to one of two LLM specialists — meal planning (which also covers nutrition guidance) and exercise. Grocery list generation is **not an agent**: it's a deterministic code transform of a saved meal plan (sum ingredient quantities across meals, categorize by store section). (Today only the meal agent exists; the router is added when the exercise agent lands — see Build Order.)
+> - **Alternative considered:** The PRD's original three-specialist split (meal, grocery, exercise) with a grocery LLM agent; a separate "nutrition verification" agent that reviews the meal agent's output before it's finalized.
+> - **Why:** Grocery list generation is arithmetic + categorization over data the meal plan already contains — no judgment is required, so an LLM call would add cost, latency, and hallucination risk for zero benefit. A separate nutrition pass is similarly redundant: the meal agent already has per-meal macros from Spoonacular in context and can reason over them directly (e.g., "this week is light on protein at breakfast") in the same call that builds the plan.
+> - **Revisit if:** Grocery categorization needs judgment a static ingredient-name lookup can't handle (ambiguous items, regional naming), or nutrition guidance needs to cross-reference data the meal agent doesn't already have in context — at that point a code lookup table or a second pass becomes worth the cost.
+> - **Diverges from PRD:** The PRD (§AI Architecture) specifies a coordinator routing to three sub-agents including a grocery list agent. This plan deliberately narrows that to two LLM specialists plus a code-based grocery transform — noted here as a knowing divergence, same as the no-auth decision above.
 
 > **Decision 4: Structured output via tool calls, not JSON mode**
 > - **Choice:** Agents emit structured data by *calling a tool* (`finalize_meal_plan`, `get_recipe`). `_run_tool` returns a `(text_for_agent, structured_data_for_frontend)` tuple; the structured half is surfaced through the API response alongside the agent's prose.
@@ -96,7 +97,8 @@ The *shapes* that move between components. Once two components agree on a contra
 | `finalize_meal_plan` *(exists)* | meals[] (day, meal_type, name, macros, spoonacular_id), notes | ack string; the input *is* the structured plan surfaced to the UI |
 | `search_exercises` *(planned)* | name, body_part, target_muscle, equipment, limit | exercise records; empty → relax filters |
 | `finalize_workout_plan` *(planned)* | workout_days[] (day, focus, exercises[]), rest_days[], notes | ack; input is the structured plan |
-| `generate_grocery_list` *(planned)* | the structured meal plan | items[] grouped by store section, quantities consolidated |
+
+> **Grocery list is not a tool/agent call.** It's a plain Python function over a saved meal plan's ingredients (sum quantities by name+unit, map each name to a store-section category via a static lookup). See `grocery.py` in Component Breakdown.
 
 ### 3.3 Agent envelopes (when the coordinator exists)
 
@@ -122,8 +124,8 @@ The *shapes* that move between components. Once two components agree on a contra
 | `backend/meal_agent.py` *(exists)* | Produce meal plans & recipes via tool-use loop over Spoonacular | spoonacular, profiles, plan context |
 | `backend/main.py` *(exists)* | HTTP routes; inject saved-plan context; log agent_runs | meal_agent, database, profiles |
 | `frontend/` Chat + cards *(exists)* | Render the conversation and structured artifacts; person selector | backend API |
-| Coordinator *(planned)* | Route input to meal/grocery/exercise specialist | all agents |
-| `grocery_agent.py` *(planned)* | Turn a meal plan into a consolidated, categorized list | a meal plan |
+| Coordinator *(planned)* | Route input to meal or exercise specialist | meal_agent, exercise_agent |
+| `grocery.py` *(planned)* | Pure code: sum ingredient quantities across a meal plan and categorize by store section (no LLM call) | a saved meal plan, static category lookup |
 | `exercise_agent.py` *(planned)* | Produce workout plans over ExerciseDB | exercisedb, profiles |
 | Feedback + preference summary *(planned)* | Store thumbs up/down; distill into a per-person summary | feedback table |
 
@@ -137,9 +139,9 @@ Dependencies first, scariest unknowns early, each step ends in something runnabl
 
 1. ☑ **Meal planning end-to-end** *(Slice 1)* — proves the whole stack: agent tool-loop → API → React card → Postgres save.
 2. ☑ **Recipe retrieval** *(Slice 2)* — injects the saved plan into the prompt; `get_recipe` resolves a meal to its ID and renders a `RecipeCard`. Proves plan-as-context.
-3. ☐ **Grocery list from a saved meal plan** — *reuses the proven pattern; the grocery agent consolidates quantities and categorizes by store section. First multi-agent handoff (meal plan → grocery).*
-4. ☐ **Exercise agent** — *port the workout logic already prototyped in `franky.py`/`exercisedb.py` into the web app; second independent specialist.*
-5. ☐ **Coordinator routing** — *only now is there more than one thing to route between; add the router and a single chat entry that dispatches by intent.*
+3. ☐ **Grocery list from a saved meal plan** — *pure code (`grocery.py`): sum ingredient quantities across the week's meals and categorize by store section via a static lookup. No new agent, no LLM call.*
+4. ☐ **Exercise agent** — *port the workout logic already prototyped in `franky.py`/`exercisedb.py` into the web app; second (and final) LLM specialist.*
+5. ☐ **Coordinator routing** — *now there are two specialists to route between; add the router and a single chat entry that dispatches by intent.*
 6. ☐ **Feedback + preference summaries** — *thumbs up/down on meals/workouts → derive a per-person summary → inject it. Personalization comes after generic plans are solid.*
 7. ☐ **Auth + profiles table** — *replace hardcoded `profiles.py` with users/profiles, swap `person_name` strings for `user_id` FKs. Last, because everything works single-household first.*
 
@@ -171,7 +173,7 @@ Every criterion is checkable — by code, by a model grading a transcript, or by
 **Recipe retrieval passes when:**
 - Asking "how do I make [meal] from my plan" returns a recipe whose name matches a meal in the saved plan, with non-empty ingredients and steps — *code + model-graded*
 
-**Grocery agent passes when** *(its slice):* every meal-plan ingredient appears; duplicates are consolidated with combined quantities; every item has a store-section category — *code check*
+**Grocery list generation passes when** *(its slice):* every meal-plan ingredient appears; duplicates are consolidated with combined quantities; every item has a store-section category — *code check (no model grading needed — it's pure code)*
 
 **Exercise agent passes when** *(its slice):* day count matches the request; each session has warm-up/work/cooldown; each exercise has sets, reps/duration, RPE; flagged-injury exercises are absent — *code + model-graded*
 
@@ -188,3 +190,4 @@ Every criterion is checkable — by code, by a model grading a transcript, or by
 - **2026-06-08** — **No auth in v1**; Chris & Kaitlyn hardcoded in `backend/profiles.py`. Single-household first, structured so auth slots in later. Knowingly diverges from the PRD's multi-user framing.
 - **2026-06-08** — **Structured output via tool calls** (`_run_tool` returns `(text, data)`) so Franky talks and emits a typed UI payload in one turn.
 - **2026-06-09** — Shipped Slice 2 (**recipe retrieval**): inject the most recent saved plan into the agent prompt each turn; `get_recipe` resolves a meal to its Spoonacular ID and the UI renders a `RecipeCard`. Confirmed the plan-as-context pattern that personalization (Decision 5) will build on.
+- **2026-06-09** — **Dropped the grocery agent and a separate nutrition-verification agent.** Grocery list generation is pure code (`grocery.py`) — summing ingredient quantities and categorizing by store section needs no model judgment. Nutrition guidance is handled by the meal agent directly, since it already has per-meal macros from Spoonacular in context. The system now has two LLM specialists (meal+nutrition, exercise) instead of the PRD's three. See revised Decision 3.
