@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { sendMessage } from '../api'
 import MealPlanCard from './MealPlanCard'
 import RecipeCard from './RecipeCard'
@@ -14,15 +16,21 @@ function Message({ msg, person }) {
           F
         </div>
       )}
-      <div className={`max-w-[75%] ${isUser ? 'items-end' : 'items-start'} flex flex-col`}>
+      <div className={`${isUser ? 'max-w-[75%] items-end' : 'max-w-[90%] items-start'} flex flex-col`}>
         <div
-          className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+          className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
             isUser
-              ? 'bg-emerald-600 text-white rounded-br-sm'
-              : 'bg-white border border-gray-200 text-gray-800 rounded-bl-sm shadow-sm'
+              ? 'bg-emerald-600 text-white rounded-br-sm whitespace-pre-wrap'
+              : 'bg-white border border-gray-200 text-gray-800 rounded-bl-sm shadow-sm overflow-x-auto'
           }`}
         >
-          {msg.content}
+          {isUser ? (
+            msg.content
+          ) : (
+            <div className="prose prose-sm max-w-none prose-p:my-1 prose-headings:my-2 prose-table:text-xs prose-th:px-2 prose-td:px-2 prose-ul:my-1 prose-ol:my-1">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+            </div>
+          )}
         </div>
         {msg.meal_plan && <MealPlanCard plan={msg.meal_plan} person={person} />}
         {msg.recipe && <RecipeCard recipe={msg.recipe} />}
