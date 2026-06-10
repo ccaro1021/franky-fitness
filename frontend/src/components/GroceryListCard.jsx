@@ -12,6 +12,14 @@ function formatQuantity(qty) {
   return Number.isInteger(qty) ? qty : qty.toFixed(2)
 }
 
+function formatItem(item) {
+  const qty = formatQuantity(item.total_quantity)
+  if (item.unit === 'unit') {
+    return `${qty} ${item.name}`
+  }
+  return `${qty} ${item.unit} ${item.name}`
+}
+
 export default function GroceryListCard({ groceryList }) {
   const byCategory = CATEGORY_ORDER.reduce((acc, cat) => {
     const items = groceryList.items.filter(item => item.category === cat)
@@ -32,9 +40,7 @@ export default function GroceryListCard({ groceryList }) {
             </h4>
             <ul className="text-sm text-gray-700 space-y-1">
               {items.map((item, i) => (
-                <li key={i}>
-                  {formatQuantity(item.total_quantity)} {item.unit} {item.name}
-                </li>
+                <li key={i}>{formatItem(item)}</li>
               ))}
             </ul>
           </div>

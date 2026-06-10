@@ -1,4 +1,50 @@
+import math
+
 from models import GroceryItem
+
+_INGREDIENT_ALIASES: dict[str, str] = {
+    # Egg components — you buy whole eggs, not yolks/whites separately
+    "egg yolk": "eggs",
+    "egg yolks": "eggs",
+    "egg white": "eggs",
+    "egg whites": "eggs",
+    "egg": "eggs",
+
+    # Singular/plural normalization for common produce
+    "onions": "onion",
+    "tomatoes": "tomato",
+    "potatoes": "potato",
+    "carrots": "carrot",
+    "scallions": "scallion",
+    "green onions": "green onion",
+    "cucumbers": "cucumber",
+    "mushrooms": "mushroom",
+    "lemons": "lemon",
+    "limes": "lime",
+
+    # Pantry staple synonyms — same shopping item, different recipe phrasing
+    "extra virgin olive oil": "olive oil",
+    "evoo": "olive oil",
+    "kosher salt": "salt",
+    "sea salt": "salt",
+    "table salt": "salt",
+    "ground black pepper": "black pepper",
+    "ground pepper": "black pepper",
+    "all-purpose flour": "flour",
+    "all purpose flour": "flour",
+    "granulated sugar": "sugar",
+    "white sugar": "sugar",
+    "garlic clove": "garlic",
+    "garlic cloves": "garlic",
+    "minced garlic": "garlic",
+    "fresh ginger": "ginger",
+    "chicken stock": "chicken broth",
+    "vegetable stock": "vegetable broth",
+    "beef stock": "beef broth",
+}
+
+# Units for items sold individually — round up to a whole shoppable count.
+_DISCRETE_UNITS = {"unit", "large", "small", "medium", "whole"}
 
 _CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "produce": [
@@ -33,7 +79,7 @@ def generate_grocery_list(plan: dict) -> list[GroceryItem]:
     totals: dict[tuple[str, str], GroceryItem] = {}
     for meal in plan.get("meals", []):
         for ingredient in meal.get("ingredients", []):
-            name = ingredient["name"]
+            name = _INGREDIENT_ALIASES.get(ingredient["name"].lower(), ingredient["name"])
             unit = ingredient.get("unit", "unit")
             quantity = ingredient.get("quantity_per_serving", 0)
             key = (name.lower(), unit)
@@ -46,4 +92,9 @@ def generate_grocery_list(plan: dict) -> list[GroceryItem]:
                     unit=unit,
                     category=categorize_ingredient(name),
                 )
+
+    for item in totals.values():
+        if item.unit in _DISCRETE_UNITS:
+            item.total_quantity = math.ceil(item.total_quantity)
+
     return list(totals.values())
