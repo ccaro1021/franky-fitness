@@ -174,11 +174,14 @@ def _run_tool(name: str, inputs: dict) -> tuple[str, dict | None]:
         if "min_protein" in inputs:
             filters["minProtein"] = inputs["min_protein"]
 
-        meals = search_recipes(
-            query=inputs.get("query", ""),
-            number=inputs.get("number", 5),
-            **filters,
-        )
+        try:
+            meals = search_recipes(
+                query=inputs.get("query", ""),
+                number=inputs.get("number", 5),
+                **filters,
+            )
+        except Exception as e:
+            return f"Recipe search is temporarily unavailable: {e}", None
 
         if not meals:
             return "No recipes found for that search.", None
