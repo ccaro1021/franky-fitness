@@ -1,17 +1,25 @@
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from backend.auth import (
+    create_session,
+    delete_session,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
 from backend.coordinator import run_coordinator
 from backend.database import get_connection, setup_tables
 from backend.preferences import get_preference_summary, record_feedback
-from backend.profiles import PEOPLE, PROFILES
+from backend.users import build_profile_context, create_user, get_profile, get_user_by_email, update_profile
 from grocery import generate_grocery_list
 
 GROCERY_LIST_KEYWORDS = ["grocery list", "shopping list"]
+SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 
 
 @asynccontextmanager
@@ -27,6 +35,7 @@ app.add_middleware(
     allow_origins=["http://localhost:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 
@@ -37,17 +46,14 @@ class Message(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[Message]
-    person: str
 
 
 class SavePlanRequest(BaseModel):
-    person: str
     plan: dict
     type: str = "meal_plan"
 
 
 class FeedbackRequest(BaseModel):
-    person: str
     plan_id: int | None = None
     item_type: str
     item_name: str
@@ -55,16 +61,93 @@ class FeedbackRequest(BaseModel):
     note: str | None = None
 
 
-@app.get("/api/people")
-def list_people():
-    return PEOPLE
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    name: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class ProfileUpdateRequest(BaseModel):
+    height_inches: float | None = None
+    weight_lbs: float | None = None
+    target_weight_lbs: float | None = None
+    dietary_restrictions: list[str] = []
+    fitness_goals: list[str] = []
+    notes: str = ""
+
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        "session_token",
+        token,
+        max_age=SESSION_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+
+
+@app.post("/api/auth/signup")
+def signup(req: SignupRequest, response: Response):
+    if get_user_by_email(req.email):
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    user = create_user(req.email, req.name, hash_password(req.password))
+    token = create_session(user["id"])
+    _set_session_cookie(response, token)
+    return user
+
+
+@app.post("/api/auth/login")
+def login(req: LoginRequest, response: Response):
+    user = get_user_by_email(req.email)
+    if not user or not verify_password(req.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    token = create_session(user["id"])
+    _set_session_cookie(response, token)
+    return {"id": user["id"], "email": user["email"], "name": user["name"]}
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request, response: Response):
+    token = request.cookies.get("session_token")
+    if token:
+        delete_session(token)
+    response.delete_cookie("session_token", path="/")
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def me(user: dict = Depends(get_current_user)):
+    return user
+
+
+@app.get("/api/profile")
+def get_my_profile(user: dict = Depends(get_current_user)):
+    return get_profile(user["id"])
+
+
+@app.put("/api/profile")
+def put_my_profile(req: ProfileUpdateRequest, user: dict = Depends(get_current_user)):
+    return update_profile(
+        user["id"],
+        req.height_inches,
+        req.weight_lbs,
+        req.target_weight_lbs,
+        req.dietary_restrictions,
+        req.fitness_goals,
+        req.notes,
+    )
 
 
 @app.post("/api/chat")
-def chat(req: ChatRequest):
-    if req.person not in PROFILES:
-        raise HTTPException(status_code=400, detail=f"Unknown person: {req.person}")
-
+def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
 
     # Inject the most recently saved plan of each type so specialists know this week's plans
@@ -74,9 +157,9 @@ def chat(req: ChatRequest):
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT content FROM plans
-                   WHERE person_name = %s AND type = 'meal_plan'
+                   WHERE user_id = %s AND type = 'meal_plan'
                    ORDER BY created_at DESC LIMIT 1""",
-                (req.person,),
+                (user["id"],),
             )
             row = cur.fetchone()
             if row:
@@ -84,9 +167,9 @@ def chat(req: ChatRequest):
 
             cur.execute(
                 """SELECT content FROM plans
-                   WHERE person_name = %s AND type = 'workout_plan'
+                   WHERE user_id = %s AND type = 'workout_plan'
                    ORDER BY created_at DESC LIMIT 1""",
-                (req.person,),
+                (user["id"],),
             )
             row = cur.fetchone()
             if row:
@@ -104,12 +187,13 @@ def chat(req: ChatRequest):
             "workout_plan": None,
         }
 
-    preference_summary = get_preference_summary(req.person)
+    profile = build_profile_context(user["id"])
+    preference_summary = get_preference_summary(user["id"])
 
     try:
         result = run_coordinator(
             messages,
-            PROFILES[req.person],
+            profile,
             current_meal_plan=current_meal_plan,
             current_workout_plan=current_workout_plan,
             preference_summary=preference_summary,
@@ -121,9 +205,9 @@ def chat(req: ChatRequest):
         with conn.cursor() as cur:
             for run in result["agent_runs"]:
                 cur.execute(
-                    """INSERT INTO agent_runs (agent_type, person_name, input_tokens, output_tokens, latency_ms)
+                    """INSERT INTO agent_runs (agent_type, user_id, input_tokens, output_tokens, latency_ms)
                        VALUES (%s, %s, %s, %s, %s)""",
-                    (run["agent_type"], req.person, run["input_tokens"], run["output_tokens"], run["latency_ms"]),
+                    (run["agent_type"], user["id"], run["input_tokens"], run["output_tokens"], run["latency_ms"]),
                 )
         conn.commit()
 
@@ -137,18 +221,15 @@ def chat(req: ChatRequest):
 
 
 @app.post("/api/plans")
-def save_plan(req: SavePlanRequest):
-    if req.person not in PROFILES:
-        raise HTTPException(status_code=400, detail=f"Unknown person: {req.person}")
-
+def save_plan(req: SavePlanRequest, user: dict = Depends(get_current_user)):
     if req.type not in ("meal_plan", "workout_plan"):
         raise HTTPException(status_code=400, detail=f"Unknown plan type: {req.type}")
 
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO plans (person_name, type, content) VALUES (%s, %s, %s) RETURNING id",
-                (req.person, req.type, json.dumps(req.plan)),
+                "INSERT INTO plans (user_id, type, content) VALUES (%s, %s, %s) RETURNING id",
+                (user["id"], req.type, json.dumps(req.plan)),
             )
             plan_id = cur.fetchone()[0]
         conn.commit()
@@ -157,42 +238,38 @@ def save_plan(req: SavePlanRequest):
 
 
 @app.get("/api/plans")
-def list_plans(person: str, type: str = "meal_plan"):
-    if person not in PROFILES:
-        raise HTTPException(status_code=400, detail=f"Unknown person: {person}")
-
+def list_plans(type: str = "meal_plan", user: dict = Depends(get_current_user)):
     if type not in ("meal_plan", "workout_plan"):
         raise HTTPException(status_code=400, detail=f"Unknown plan type: {type}")
 
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT id, person_name, content, created_at
+                """SELECT id, content, created_at
                    FROM plans
-                   WHERE person_name = %s AND type = %s
+                   WHERE user_id = %s AND type = %s
                    ORDER BY created_at DESC""",
-                (person, type),
+                (user["id"], type),
             )
             rows = cur.fetchall()
 
     return [
         {
             "id": r[0],
-            "person_name": r[1],
-            "content": r[2],
-            "created_at": r[3].isoformat(),
+            "content": r[1],
+            "created_at": r[2].isoformat(),
         }
         for r in rows
     ]
 
 
 @app.get("/api/plans/{plan_id}")
-def get_plan(plan_id: int):
+def get_plan(plan_id: int, user: dict = Depends(get_current_user)):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, person_name, content, created_at FROM plans WHERE id = %s",
-                (plan_id,),
+                "SELECT id, content, created_at FROM plans WHERE id = %s AND user_id = %s",
+                (plan_id, user["id"]),
             )
             row = cur.fetchone()
 
@@ -201,17 +278,13 @@ def get_plan(plan_id: int):
 
     return {
         "id": row[0],
-        "person_name": row[1],
-        "content": row[2],
-        "created_at": row[3].isoformat(),
+        "content": row[1],
+        "created_at": row[2].isoformat(),
     }
 
 
 @app.post("/api/feedback")
-def submit_feedback(req: FeedbackRequest):
-    if req.person not in PROFILES:
-        raise HTTPException(status_code=400, detail=f"Unknown person: {req.person}")
-
+def submit_feedback(req: FeedbackRequest, user: dict = Depends(get_current_user)):
     if req.item_type not in ("meal", "exercise"):
         raise HTTPException(status_code=400, detail=f"Unknown item_type: {req.item_type}")
 
@@ -219,18 +292,18 @@ def submit_feedback(req: FeedbackRequest):
         raise HTTPException(status_code=400, detail=f"Unknown rating: {req.rating}")
 
     summary = record_feedback(
-        req.person, req.plan_id, req.item_type, req.item_name, req.rating, req.note
+        user["id"], req.plan_id, req.item_type, req.item_name, req.rating, req.note
     )
     return {"summary": summary}
 
 
 @app.get("/api/plans/{plan_id}/grocery-list")
-def get_grocery_list(plan_id: int):
+def get_grocery_list(plan_id: int, user: dict = Depends(get_current_user)):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT content FROM plans WHERE id = %s AND type = 'meal_plan'",
-                (plan_id,),
+                "SELECT content FROM plans WHERE id = %s AND user_id = %s AND type = 'meal_plan'",
+                (plan_id, user["id"]),
             )
             row = cur.fetchone()
 

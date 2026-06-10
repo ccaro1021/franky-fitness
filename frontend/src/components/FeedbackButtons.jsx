@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { submitFeedback } from '../api'
 
-export default function FeedbackButtons({ person, planId, itemType, itemName }) {
+export default function FeedbackButtons({ planId, itemType, itemName }) {
   const [rating, setRating] = useState(null)
   const [noteOpen, setNoteOpen] = useState(false)
   const [note, setNote] = useState('')
@@ -10,7 +10,7 @@ export default function FeedbackButtons({ person, planId, itemType, itemName }) 
   async function handleRate(newRating) {
     setRating(newRating)
     try {
-      await submitFeedback(person, planId, itemType, itemName, newRating)
+      await submitFeedback(planId, itemType, itemName, newRating)
     } catch {
       setRating(null)
     }
@@ -19,7 +19,7 @@ export default function FeedbackButtons({ person, planId, itemType, itemName }) 
   async function handleSendNote() {
     if (!note.trim() || !rating) return
     try {
-      await submitFeedback(person, planId, itemType, itemName, rating, note.trim())
+      await submitFeedback(planId, itemType, itemName, rating, note.trim())
       setNoteSent(true)
       setNoteOpen(false)
     } catch {

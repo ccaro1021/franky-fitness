@@ -6,7 +6,7 @@ import FeedbackButtons from './FeedbackButtons'
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const MEAL_ORDER = ['breakfast', 'lunch', 'dinner', 'snack']
 
-export default function MealPlanCard({ plan, person }) {
+export default function MealPlanCard({ plan }) {
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -26,7 +26,7 @@ export default function MealPlanCard({ plan, person }) {
     setSaving(true)
     setError(null)
     try {
-      const { id } = await savePlan(person, plan)
+      const { id } = await savePlan(plan)
       setPlanId(id)
       setSaved(true)
     } catch (e) {
@@ -113,7 +113,6 @@ export default function MealPlanCard({ plan, person }) {
                   <td className="px-4 py-2.5 text-right">
                     {saved && (
                       <FeedbackButtons
-                        person={person}
                         planId={planId}
                         itemType="meal"
                         itemName={meal.name}

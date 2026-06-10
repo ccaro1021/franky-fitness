@@ -11,7 +11,6 @@
 **A Tuesday that works:** Chris opens the app, asks "what's for dinner this week?", gets a 7-day plan he'd actually cook, asks "how do I make Thursday's salmon?", sees a recipe card, then generates the grocery list for the week. Kaitlyn does the same against her own profile and history.
 
 **Non-goals (deferred or out of scope):**
-- **Auth / multi-user accounts — deferred, not never.** v1 has no login; Chris & Kaitlyn are hardcoded profiles (`backend/profiles.py`). The schema and API are structured so email/password auth can slot in later without a rewrite. *This is the one place we knowingly diverge from the PRD's "multi-user product" framing — we build single-household first.*
 - No social features (sharing, following, community plans).
 - No third-party integrations (wearables, grocery delivery, calendar).
 - No tracking of *actual* consumption or workouts performed — Franky generates plans, it does not log execution.
@@ -78,16 +77,13 @@ The *shapes* that move between components. Once two components agree on a contra
 ### 3.1 Persisted tables
 
 **Exists today** (`backend/database.py`):
-- **plans:** id, person_name, type (`meal_plan` | `grocery_list` | `workout_plan`), content (JSONB), created_at
-- **agent_runs:** id, agent_type, person_name, input_tokens, output_tokens, latency_ms, created_at
-- **feedback:** id, person_name, plan_id (FK to plans, nullable), item_type (`meal`|`exercise`), item_name, rating (`positive`|`negative`), note (nullable), created_at
-- **preference_summaries:** person_name (PK), summary (JSONB: liked_meals/disliked_meals/liked_workouts/disliked_workouts/patterns), updated_at
-
-**Planned** (from PRD §Data Models — add when their slice lands, not before):
-- **users:** id, email, password_hash, name, created_at *(auth slice)*
-- **profiles:** id, user_id (FK), height, weight, bmi, dietary_restrictions (JSON), fitness_goals (JSON), updated_at *(replaces hardcoded `profiles.py`)*
-
-> **Migration note:** `plans.person_name` and `agent_runs.person_name` are string keys today because there are no user rows. When auth lands, these become `user_id` FKs. Keep this in mind before adding more `person_name`-keyed tables.
+- **users:** id, email (unique), password_hash, name, created_at
+- **profiles:** user_id (PK, FK→users), height_inches, weight_lbs, target_weight_lbs, dietary_restrictions (JSONB), fitness_goals (JSONB), notes, updated_at — BMI is computed on the fly (`backend/users.compute_bmi`), not stored
+- **sessions:** token (PK), user_id (FK→users), expires_at, created_at — session-cookie auth
+- **plans:** id, user_id (FK→users), type (`meal_plan` | `grocery_list` | `workout_plan`), content (JSONB), created_at
+- **agent_runs:** id, agent_type, user_id (FK→users), input_tokens, output_tokens, latency_ms, created_at
+- **feedback:** id, user_id (FK→users), plan_id (FK to plans, nullable), item_type (`meal`|`exercise`), item_name, rating (`positive`|`negative`), note (nullable), created_at
+- **preference_summaries:** user_id (PK, FK→users), summary (JSONB: liked_meals/disliked_meals/liked_workouts/disliked_workouts/patterns), updated_at
 
 ### 3.2 Tool contracts (the empty/error case is part of the contract)
 
@@ -106,7 +102,7 @@ The *shapes* that move between components. Once two components agree on a contra
 
 ### 3.3 Agent envelopes
 
-- **Coordinator → specialist:** the full conversation history (unchanged), plus that specialist's own context injection — meal agent gets the saved `meal_plan`, exercise agent gets the saved `workout_plan`. Both also get the person's profile (restrictions, goals, notes).
+- **Coordinator → specialist:** the full conversation history (unchanged), plus that specialist's own context injection — meal agent gets the saved `meal_plan`, exercise agent gets the saved `workout_plan`. Both also get the user's profile (restrictions, goals, notes, and — when set — height/weight/target weight/BMI).
 - **Specialist → coordinator → API:** prose message + optional structured artifact (`meal_plan` | `recipe` | `grocery_list` | `workout_plan`), each null unless that turn produced it. `run_coordinator` also returns `agent_runs`: a list of `{agent_type, input_tokens, output_tokens, latency_ms}` — one entry for the routing call (`agent_type="coordinator"`) and one for whichever specialist ran — both logged to `agent_runs`.
 
 ### 3.4 Output schemas the user sees
@@ -123,15 +119,16 @@ The *shapes* that move between components. Once two components agree on a contra
 |---|---|---|
 | `spoonacular.py` *(exists)* | Fetch recipes/macros/ingredients from Spoonacular | API key |
 | `exercisedb.py` *(exists)* | Fetch exercises from ExerciseDB | API key |
-| `backend/profiles.py` *(exists)* | Hold Chris & Kaitlyn's profile context (temporary stand-in for the profiles table) | — |
+| `backend/auth.py` *(exists)* | Password hashing, session create/lookup/delete, `get_current_user` dependency | bcrypt, sessions table |
+| `backend/users.py` *(exists)* | User + profile CRUD, BMI computation, builds the profile context injected into agent prompts | users/profiles tables |
 | `backend/database.py` *(exists)* | Postgres connection + table setup | DATABASE_URL |
-| `backend/meal_agent.py` *(exists)* | Produce meal plans & recipes via tool-use loop over Spoonacular | spoonacular, profiles, plan context |
-| `backend/exercise_agent.py` *(exists)* | Produce workout plans via tool-use loop over ExerciseDB | exercisedb, profiles, plan context |
+| `backend/meal_agent.py` *(exists)* | Produce meal plans & recipes via tool-use loop over Spoonacular | spoonacular, profile context, plan context |
+| `backend/exercise_agent.py` *(exists)* | Produce workout plans via tool-use loop over ExerciseDB | exercisedb, profile context, plan context |
 | `backend/coordinator.py` *(exists)* | Classify each turn (Haiku, forced `route` tool call) and dispatch to meal or exercise specialist | meal_agent, exercise_agent |
 | `grocery.py` *(exists)* | Pure code: sum ingredient quantities across a meal plan and categorize by store section (no LLM call) | a saved meal plan, static category lookup |
-| `backend/main.py` *(exists)* | HTTP routes; inject saved meal/workout plan context; log agent_runs for coordinator + specialist | coordinator, database, profiles |
-| `frontend/` Chat + cards *(exists)* | Render the conversation and structured artifacts (meal plan, recipe, grocery list, workout plan); person selector | backend API |
-| `backend/preferences.py` *(exists)* | Pure code: record feedback rows and recompute the per-person preference summary (no LLM call) | feedback table |
+| `backend/main.py` *(exists)* | HTTP routes; auth/profile endpoints; inject saved meal/workout plan context; log agent_runs for coordinator + specialist | coordinator, database, auth, users |
+| `frontend/` Chat + cards + AuthPage + ProfilePage *(exists)* | Render the conversation, structured artifacts (meal plan, recipe, grocery list, workout plan), login/signup, and profile editing | backend API |
+| `backend/preferences.py` *(exists)* | Pure code: record feedback rows and recompute the per-user preference summary (no LLM call) | feedback table |
 
 **Entry points:** backend `uvicorn backend.main:app`; frontend `npm run dev` (Vite proxies `/api` → `:8000`).
 
@@ -146,7 +143,7 @@ Dependencies first, scariest unknowns early, each step ends in something runnabl
 3. ☑ **Grocery list from a saved meal plan** *(Slice 3)* — *pure code (`grocery.py`): sum ingredient quantities across the week's meals and categorize by store section via a static lookup. No new agent, no LLM call.*
 4. ☑ **Exercise agent + coordinator routing** *(Slice 4)* — *`backend/exercise_agent.py` ports the workout logic from `franky.py`/`exercisedb.py` into the web app as the second LLM specialist; `backend/coordinator.py` adds a Haiku-based router (forced `route` tool call) that classifies each turn and dispatches to meal or exercise. `WorkoutPlanCard` renders the result; workout plans persist as `type='workout_plan'` rows.*
 5. ☑ **Feedback + preference summaries** *(Slice 5)* — *thumbs up/down (+ optional note) on saved meals/exercises via `FeedbackButtons`, recorded through `POST /api/feedback`. `backend/preferences.py` recomputes a per-person summary in pure code (most-recent rating per item wins) and `/api/chat` injects it into both specialists' system prompts.*
-6. ☐ **Auth + profiles table** — *replace hardcoded `profiles.py` with users/profiles, swap `person_name` strings for `user_id` FKs. Last, because everything works single-household first.*
+6. ☑ **Auth + profiles table** *(Slice 6)* — *replaced hardcoded `profiles.py` with `users`/`profiles`/`sessions` tables, session-cookie auth, and a Profile page (height/weight/target weight/goals/restrictions, BMI computed on the fly). `person_name` strings fully replaced with `user_id` FKs across plans/agent_runs/feedback/preference_summaries.*
 
 **Riskiest assumption, tested earliest:** that an agent plans *well* over API lookups (not just *runs*). Slices 1–2 already exercise this; the eval suite (§7) is what turns "seems fine" into "passes."
 
@@ -155,11 +152,10 @@ Dependencies first, scariest unknowns early, each step ends in something runnabl
 ## 6. Risks & Open Questions
 
 - **Open — recipe IDs in plans:** `finalize_meal_plan` trusts the agent to carry the `spoonacular_id` from `search_meals` results into the plan. If it drops or fabricates one, `get_recipe` falls back to name search. *Mitigation candidate: validate every `spoonacular_id` in a finalized plan against what was actually returned by search. Deferring until we see how often IDs go missing in real use.*
-- **Open — when does auth land?** Everything is keyed on `person_name` strings. The longer we wait, the more tables inherit that key. *Decision deferred to Build Order step 7, but revisit immediately if a second household ever wants in.*
 - **Risk — Spoonacular free-tier limits.** Heavy plan generation could hit daily caps. *Mitigation: cache resolved recipes; consider a one-time ingest of a recipe store (mirroring the facts-from-data decision) if limits bite.*
 - **Risk — preference-summary token growth.** Injecting history every call grows cost. *Mitigation is already the design (Decision 5): inject the distilled summary, never the raw feedback table. Worth measuring once feedback exists.*
 - **Risk — multi-agent latency.** Coordinator + specialist + tool calls compound latency. *Turn this into a measured eval, not an assertion — `agent_runs` already logs latency_ms per call.*
-- **Assumption — two people, one app, separate contexts is enough.** The person selector swaps profile + plan context. If Chris and Kaitlyn ever need a *shared* plan ("plan dinners we both eat"), the per-person model needs rethinking. *Out of scope for now (PRD: no household accounts), but the most likely thing to force a restructure.*
+- **Assumption — two people, one app, separate contexts is enough.** Each login swaps profile + plan context. If Chris and Kaitlyn ever need a *shared* plan ("plan dinners we both eat"), the per-user model needs rethinking. *Out of scope for now (PRD: no household accounts), but the most likely thing to force a restructure.*
 
 ---
 
@@ -199,3 +195,4 @@ Every criterion is checkable — by code, by a model grading a transcript, or by
 - **2026-06-09** — Shipped Slice 3 (**grocery list generation**): `finalize_meal_plan` now fetches and stores each meal's full ingredient list (one Spoonacular `get_recipe` call per meal with a known ID). `grocery.py` sums quantities and categorizes by store section via a static keyword lookup — pure code, no LLM. Triggered via a button on `MealPlanCard` (`GET /api/plans/{id}/grocery-list`) or by chat intent ("grocery list" / "shopping list" short-circuits `/api/chat` before the agent runs).
 - **2026-06-10** — Shipped Slice 4 (**exercise agent + coordinator routing**): chose the real LLM-based coordinator (Option C) over keyword routing, a separate endpoint/UI, or a UI mode toggle, since a stated project goal is learning multi-agent system design. `backend/exercise_agent.py` mirrors `meal_agent.py` (search_exercises + finalize_workout_plan tools, profile + saved-workout-plan injection). `backend/coordinator.py` classifies the latest user message via Haiku with a forced `route` tool call and dispatches to meal or exercise. `/api/chat` now fetches both the latest meal_plan and workout_plan, logs one `agent_runs` row for the coordinator and one for the chosen specialist. `/api/plans` (POST/GET) generalized with a `type` field (`meal_plan` | `workout_plan`). New `WorkoutPlanCard` renders the plan with a Save button. **Caught during testing:** the router's `max_tokens=20` was too small for Haiku to emit the forced tool call's input — it returned `{}` and silently defaulted to "meal" with no error. Fixed by raising `max_tokens` to 200.
 - **2026-06-10** — Shipped Slice 5 (**feedback + preference summaries**): saved `MealPlanCard`/`WorkoutPlanCard` rows now have 👍/👎 `FeedbackButtons` (with an optional note) calling `POST /api/feedback`. `backend/preferences.py` is **pure code** (Decision 3 precedent) — it inserts into `feedback` and recomputes `preference_summaries` by taking the most-recent rating per `(item_type, item_name)` and bucketing into `liked_meals`/`disliked_meals`/`liked_workouts`/`disliked_workouts`. `/api/chat` fetches this summary and threads it through `run_coordinator` to whichever specialist runs; both agents append a "Known preferences" block to their system prompt when any bucket is non-empty. **Two deliberate scope cuts:** (1) the PRD's `patterns: []` field is left empty — deriving free-text patterns needs model judgment, deferred until there's a concrete reason to add an LLM call here; (2) no "view/correct my preferences" UI yet (PRD stories 63-64) — feedback collection and prompt injection only. **Diverges from the PRD's `plan_items` table:** plans remain a single JSONB blob; feedback is keyed by `(person_name, item_type, item_name)` plus an optional `plan_id` for traceability, since the dish/exercise name — not a row ID — is what's useful for "don't suggest this again."
+- **2026-06-10** — Shipped Slice 6 (**auth + user profiles**): replaced hardcoded `backend/profiles.py` with real accounts. **Auth:** session-cookie + DB-backed `sessions` table (not JWT) — simple, revocable on logout, and the Vite dev proxy makes `/api/*` same-origin so cookies need no special CORS handling beyond `allow_credentials=True`. Passwords hashed with `bcrypt` (`backend/auth.py`); `get_current_user` is a FastAPI dependency reading the `session_token` cookie. **Profiles:** new `profiles` table holds height_inches/weight_lbs/target_weight_lbs/dietary_restrictions/fitness_goals/notes; BMI is computed on the fly (`backend/users.compute_bmi`), never stored, since it's derived and would go stale. Both agents' system prompts now include a "stats" block (height/weight/target/BMI) when those fields are set, alongside the existing dietary-restrictions/goals/notes block. **Onboarding:** minimal signup (email/password/name) plus a separate Profile page (`ProfilePage.jsx`) for height/weight/target/goals/restrictions — chosen over a multi-step onboarding wizard since the data can be filled in incrementally. **Migration:** `backend/migrate_to_auth.py` is a one-time interactive script (run manually, prompts for Chris & Kaitlyn's email/password via `getpass`) that creates their `users`/`profiles` rows seeded from the old `PROFILES` dict, then backfills and fully replaces `person_name` with `user_id` across `plans`/`agent_runs`/`feedback`/`preference_summaries` (including moving `preference_summaries`'s primary key from `person_name` to `user_id`) and drops the old column — chosen over keeping both columns indefinitely, since a clean cutover avoids two parallel identity systems. The person-selector UI is gone; `App.jsx` now gates on `GET /api/auth/me` and shows `AuthPage` (login/signup) or the chat + profile views.

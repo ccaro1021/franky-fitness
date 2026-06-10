@@ -7,7 +7,7 @@ import RecipeCard from './RecipeCard'
 import GroceryListCard from './GroceryListCard'
 import WorkoutPlanCard from './WorkoutPlanCard'
 
-function Message({ msg, person }) {
+function Message({ msg }) {
   const isUser = msg.role === 'user'
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
@@ -32,20 +32,20 @@ function Message({ msg, person }) {
             </div>
           )}
         </div>
-        {msg.meal_plan && <MealPlanCard plan={msg.meal_plan} person={person} />}
+        {msg.meal_plan && <MealPlanCard plan={msg.meal_plan} />}
         {msg.recipe && <RecipeCard recipe={msg.recipe} />}
         {msg.grocery_list && <GroceryListCard groceryList={msg.grocery_list} />}
-        {msg.workout_plan && <WorkoutPlanCard plan={msg.workout_plan} person={person} />}
+        {msg.workout_plan && <WorkoutPlanCard plan={msg.workout_plan} />}
       </div>
     </div>
   )
 }
 
-export default function Chat({ person }) {
+export default function Chat({ user }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: `Hi ${person}! I'm Franky, your nutrition and training coach. What can I help you with this week? I can build a meal plan, suggest recipes, generate a grocery list, or put together a workout plan.`,
+      content: `Hi ${user.name}! I'm Franky, your nutrition and training coach. What can I help you with this week? I can build a meal plan, suggest recipes, generate a grocery list, or put together a workout plan.`,
     },
   ])
   const [input, setInput] = useState('')
@@ -56,17 +56,6 @@ export default function Chat({ person }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
-
-  // Reset greeting when person changes
-  useEffect(() => {
-    setMessages([
-      {
-        role: 'assistant',
-        content: `Hi ${person}! I'm Franky, your nutrition and training coach. What can I help you with this week?`,
-      },
-    ])
-    setError(null)
-  }, [person])
 
   async function handleSend() {
     const text = input.trim()
@@ -83,7 +72,7 @@ export default function Chat({ person }) {
     const apiMessages = nextMessages.map(m => ({ role: m.role, content: m.content }))
 
     try {
-      const data = await sendMessage(apiMessages, person)
+      const data = await sendMessage(apiMessages)
       setMessages(prev => [
         ...prev,
         {
@@ -114,7 +103,7 @@ export default function Chat({ person }) {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {messages.map((msg, i) => (
-          <Message key={i} msg={msg} person={person} />
+          <Message key={i} msg={msg} />
         ))}
 
         {loading && (

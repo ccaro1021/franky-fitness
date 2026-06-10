@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { savePlan } from '../api'
 import FeedbackButtons from './FeedbackButtons'
 
-export default function WorkoutPlanCard({ plan, person }) {
+export default function WorkoutPlanCard({ plan }) {
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -12,7 +12,7 @@ export default function WorkoutPlanCard({ plan, person }) {
     setSaving(true)
     setError(null)
     try {
-      const { id } = await savePlan(person, plan, 'workout_plan')
+      const { id } = await savePlan(plan, 'workout_plan')
       setPlanId(id)
       setSaved(true)
     } catch (e) {
@@ -56,7 +56,6 @@ export default function WorkoutPlanCard({ plan, person }) {
                     <span className="text-gray-500">{ex.sets} × {ex.reps} · rest {ex.rest_seconds}s</span>
                     {saved && (
                       <FeedbackButtons
-                        person={person}
                         planId={planId}
                         itemType="exercise"
                         itemName={ex.exercise_name}

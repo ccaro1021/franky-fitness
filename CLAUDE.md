@@ -10,7 +10,7 @@ The architecture is two LLM specialists — meal planning (which also covers nut
 
 ## Who It's For
 
-**Chris and Kaitlyn.** Both partners' needs, preferences, and dietary restrictions should always be considered. Features should be designed for two people, not one.
+**Chris and Kaitlyn.** Both partners' needs, preferences, and dietary restrictions should always be considered. Features should be designed for two people, not one. Each has their own account (email/password login) and profile.
 
 ## Tech Stack
 
@@ -45,18 +45,20 @@ franky-fitness/
 ├── docs/
 │   └── franky-fitness-prd.md   # Full product requirements doc
 ├── backend/              # FastAPI application
-│   ├── main.py           # API routes: /api/chat, /api/plans, /api/plans/{id}/grocery-list, /api/feedback, /api/people
+│   ├── main.py           # API routes: /api/auth/*, /api/profile, /api/chat, /api/plans, /api/plans/{id}/grocery-list, /api/feedback
+│   ├── auth.py           # Password hashing (bcrypt), session create/lookup/delete, get_current_user dependency
+│   ├── users.py          # User + profile CRUD, BMI computation, builds profile context for agent prompts
+│   ├── migrate_to_auth.py # One-time interactive migration: seeds Chris & Kaitlyn accounts, person_name -> user_id
 │   ├── coordinator.py    # Routes each turn to the meal or exercise specialist (Haiku classifier)
 │   ├── meal_agent.py     # Meal planning agent — tools, prompt builder, tool-use loop
 │   ├── exercise_agent.py # Exercise planning agent — tools, prompt builder, tool-use loop
-│   ├── preferences.py    # Pure code: records feedback and derives a per-person preference summary
-│   ├── database.py       # psycopg2 connection + table setup (plans, agent_runs, feedback, preference_summaries)
-│   └── profiles.py       # Hardcoded Chris & Kaitlyn profiles (no auth yet)
+│   ├── preferences.py    # Pure code: records feedback and derives a per-user preference summary
+│   └── database.py       # psycopg2 connection + table setup (users, profiles, sessions, plans, agent_runs, feedback, preference_summaries)
 ├── frontend/             # Vite + React + Tailwind app
 │   └── src/
-│       ├── App.jsx       # Header + person selector (Chris / Kaitlyn)
-│       ├── api.js        # fetch wrappers for the backend
-│       └── components/   # Chat.jsx, MealPlanCard.jsx, RecipeCard.jsx, GroceryListCard.jsx, WorkoutPlanCard.jsx, FeedbackButtons.jsx
+│       ├── App.jsx       # Auth gate (login/signup vs. app shell), header with user name + Profile/Logout
+│       ├── api.js        # fetch wrappers for the backend (credentials: 'include' for session cookies)
+│       └── components/   # Chat.jsx, AuthPage.jsx, ProfilePage.jsx, MealPlanCard.jsx, RecipeCard.jsx, GroceryListCard.jsx, WorkoutPlanCard.jsx, FeedbackButtons.jsx
 └── venv/                 # Virtual environment (gitignored)
 ```
 
@@ -64,7 +66,7 @@ franky-fitness/
 
 The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built as **vertical slices** — each slice ships one feature through every layer (agent → API → UI → persistence) rather than building layers horizontally.
 
-**Slice 1 (done): Meal planning end-to-end.** A user picks who they are (Chris/Kaitlyn — no auth yet, profiles are hardcoded in `backend/profiles.py`), chats with Franky, and gets a structured weekly meal plan rendered as an inline table. Plans save to PostgreSQL.
+**Slice 1 (done): Meal planning end-to-end.** A user logs in, chats with Franky, and gets a structured weekly meal plan rendered as an inline table. Plans save to PostgreSQL.
 
 **Slice 2 (done): Recipe retrieval.** The most recently saved plan for the active person is injected into the agent's system prompt on every `/api/chat` call. The agent has a `get_recipe` tool; when the user asks how to make a meal, it resolves the meal to its Spoonacular ID from the plan, fetches full ingredients + steps, and the frontend renders a `RecipeCard`.
 
@@ -74,11 +76,13 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 
 **Slice 5 (done): Feedback + preference summaries.** Once a meal plan or workout plan is saved, each meal/exercise row gets 👍/👎 `FeedbackButtons` (with an optional "+ note") that call `POST /api/feedback`. `backend/preferences.py` is pure code — no agent, no LLM call — that records the rating to the `feedback` table and recomputes a `preference_summaries` row: for each `(item_type, item_name)`, the most recent rating wins, bucketed into `liked_meals` / `disliked_meals` / `liked_workouts` / `disliked_workouts`. `/api/chat` fetches this summary and passes it to whichever specialist runs; both `_build_system_prompt` functions append a "Known preferences" block when any bucket is non-empty.
 
+**Slice 6 (done): Auth + user profiles.** Replaced hardcoded `backend/profiles.py` with real accounts. `backend/auth.py` handles bcrypt password hashing and a DB-backed `sessions` table; `get_current_user` is a FastAPI dependency that reads the `session_token` httponly cookie. New `users` and `profiles` tables (`backend/users.py`) hold email/password/name and height_inches/weight_lbs/target_weight_lbs/dietary_restrictions/fitness_goals/notes — BMI is computed on the fly via `compute_bmi`, never stored. The frontend gates on `GET /api/auth/me`: unauthenticated users see `AuthPage` (login/signup toggle); authenticated users see the chat plus a `ProfilePage` for editing their stats. `plans`/`agent_runs`/`feedback`/`preference_summaries` now key on `user_id` instead of `person_name` (migrated via the one-time `backend/migrate_to_auth.py`). Both agents' system prompts include a "stats" block (height/weight/target/BMI) when those fields are set.
+
 ### How the meal agent works
 - `meal_agent.run_meal_agent(messages, profile, current_plan)` runs the tool-use loop.
 - Tools: `search_meals` (Spoonacular search), `get_recipe` (full recipe by ID or name), `finalize_meal_plan` (emits structured plan data).
 - `_run_tool` returns a `(text_for_agent, structured_data_for_frontend)` tuple. The structured data (a finalized plan or a recipe) is surfaced back through the API response alongside the agent's text.
-- The system prompt is built dynamically per request in `_build_system_prompt` — it injects the person's profile and their current saved plan. **Note:** the web app does NOT use `system_prompt.txt`; that file is only for the legacy CLI.
+- The system prompt is built dynamically per request in `_build_system_prompt` — it injects the user's profile (dietary restrictions, fitness goals, notes, and — when set — height/weight/target weight/BMI via `_format_stats_for_prompt`) and their current saved plan. **Note:** the web app does NOT use `system_prompt.txt`; that file is only for the legacy CLI.
 
 ### How the exercise agent works
 - `exercise_agent.run_exercise_agent(messages, profile, current_plan)` mirrors the meal agent's tool-use loop.
@@ -91,10 +95,16 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 - Returns `agent_runs`: one entry for the coordinator call and one for the chosen specialist; `/api/chat` logs both to the `agent_runs` table with `agent_type` ∈ `{"coordinator", "meal_agent", "exercise_agent"}`.
 
 ### How feedback and preferences work
-- `preferences.record_feedback(person_name, plan_id, item_type, item_name, rating, note)` inserts a row into `feedback`, then calls `_recompute_summary` and upserts `preference_summaries`.
+- `preferences.record_feedback(user_id, plan_id, item_type, item_name, rating, note)` inserts a row into `feedback`, then calls `_recompute_summary` and upserts `preference_summaries`.
 - `_recompute_summary` selects the most recent rating per `(item_type, item_name)` (`SELECT DISTINCT ON ... ORDER BY ... created_at DESC`) and buckets into `liked_meals` / `disliked_meals` / `liked_workouts` / `disliked_workouts`. The `patterns` field exists in the schema but is left empty — deriving it would need model judgment, which is out of scope until there's a reason to add an LLM call here.
-- `/api/chat` calls `get_preference_summary(person)` and passes it to `run_coordinator`, which forwards it unchanged to whichever specialist runs.
-- **Diverges from the PRD's `plan_items` table:** plans stay a single JSONB blob. Feedback is keyed by `(person_name, item_type, item_name)` plus an optional `plan_id` for traceability — `item_name` (the dish/exercise name) is what's actually useful for "don't suggest this again."
+- `/api/chat` calls `get_preference_summary(user_id)` and passes it to `run_coordinator`, which forwards it unchanged to whichever specialist runs.
+- **Diverges from the PRD's `plan_items` table:** plans stay a single JSONB blob. Feedback is keyed by `(user_id, item_type, item_name)` plus an optional `plan_id` for traceability — `item_name` (the dish/exercise name) is what's actually useful for "don't suggest this again."
+
+### How auth and profiles work
+- `backend/auth.py`: `hash_password`/`verify_password` (bcrypt); `create_session(user_id)` generates a token and stores it in `sessions` with a 30-day expiry; `get_current_user` is a FastAPI dependency that reads the `session_token` cookie, looks up the session, and raises 401 if missing/expired.
+- `backend/users.py`: `create_user`, `get_user_by_email`, `get_profile`/`update_profile` (height_inches, weight_lbs, target_weight_lbs, dietary_restrictions, fitness_goals, notes), `compute_bmi(height_inches, weight_lbs)` (returns `None` if either is missing — BMI is never stored), `build_profile_context(user_id)` shapes all of this into the dict the agents' `_build_system_prompt` expects.
+- Routes: `POST /api/auth/signup|login|logout`, `GET /api/auth/me`, `GET`/`PUT /api/profile`. The session cookie is httponly, `SameSite=Lax`, no `Secure` flag (local http dev).
+- Frontend: `App.jsx` calls `GET /api/auth/me` on mount; unauthenticated → `AuthPage` (login/signup toggle); authenticated → header (name, Profile/Chat toggle, Logout) + `Chat` or `ProfilePage`. All `api.js` fetches use `credentials: 'include'`.
 
 ### Running the app locally
 ```bash
@@ -108,7 +118,7 @@ cd frontend && npm run dev                                       # :5173 (proxie
 ### Debugging: checking which agent handled a turn
 Query `agent_runs` directly to see what the coordinator decided:
 ```bash
-psql franky_fitness -c "SELECT id, agent_type, person_name, created_at FROM agent_runs ORDER BY id DESC LIMIT 6;"
+psql franky_fitness -c "SELECT id, agent_type, user_id, created_at FROM agent_runs ORDER BY id DESC LIMIT 6;"
 ```
 A successful turn inserts **two rows** with the same `created_at`: `coordinator` (the routing call) followed by `meal_agent` or `exercise_agent` (the specialist that handled it).
 
@@ -120,12 +130,11 @@ So "no new rows after sending a message" means either it hit the grocery shortcu
 
 ## Decisions Made This Session
 - **PostgreSQL from the start** (not SQLite) — matches the PRD target. Installed via `brew install postgresql@17`.
-- **No auth yet** — Chris & Kaitlyn are hardcoded in `profiles.py`. Auth is a later slice.
+- **Session-cookie auth** (not JWT) — `users`/`profiles`/`sessions` tables, bcrypt password hashing, replacing hardcoded `profiles.py`.
 - **Vertical slices over horizontal layers** — ship one feature through all layers at a time.
 
 ## Roadmap (next slices)
 - View/correct preference summary in the UI (PRD stories 63-64)
-- Email/password auth to replace hardcoded profiles
 
 ## Coding Conventions
 

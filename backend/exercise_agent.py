@@ -136,6 +136,19 @@ def _format_preferences_for_prompt(preference_summary: dict) -> str:
     return "\n".join(lines)
 
 
+def _format_stats_for_prompt(profile: dict) -> str:
+    lines = []
+    if profile.get("height_inches"):
+        lines.append(f"- Height: {profile['height_inches']} in")
+    if profile.get("weight_lbs"):
+        lines.append(f"- Current weight: {profile['weight_lbs']} lbs")
+    if profile.get("target_weight_lbs"):
+        lines.append(f"- Target weight: {profile['target_weight_lbs']} lbs")
+    if profile.get("bmi"):
+        lines.append(f"- BMI: {profile['bmi']} (context only — not a diagnosis)")
+    return "\n".join(lines) + "\n" if lines else ""
+
+
 def _build_system_prompt(
     profile: dict, current_plan: dict | None = None, preference_summary: dict | None = None
 ) -> str:
@@ -147,7 +160,7 @@ def _build_system_prompt(
 {profile['name']}'s profile:
 - Fitness goals: {goals}
 {f"- Notes: {notes}" if notes else ""}
-
+{_format_stats_for_prompt(profile)}
 When building a workout plan:
 1. Ask for available training days per week, equipment access, and any injuries or limitations — one focused question at a time.
 2. Choose an appropriate training split (e.g. Upper/Lower, Push/Pull/Legs, Full Body) based on available days and goals.
