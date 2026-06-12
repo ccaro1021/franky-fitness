@@ -53,7 +53,15 @@ franky-fitness/
 │   ├── meal_agent.py     # Meal planning agent — tools, prompt builder, tool-use loop
 │   ├── exercise_agent.py # Exercise planning agent — tools, prompt builder, tool-use loop
 │   ├── preferences.py    # Pure code: records feedback and derives a per-user preference summary
+│   ├── transcripts.py    # Transcript schema + serialize_messages/extract_steps/write_transcript/read_transcripts/promote_to_task
+│   ├── view_transcript.py # CLI to inspect transcripts/*.jsonl (--last/--agent/--invoked/--id)
 │   └── database.py       # psycopg2 connection + table setup (users, profiles, sessions, plans, agent_runs, feedback, preference_summaries)
+├── evals/                # Eval harness (Task/Trial/Grader, pass@k/pass^k)
+│   ├── tasks.py          # Seed Task set (inputs, synthetic profile, graders)
+│   ├── graders.py        # Code-based + LLM-as-judge graders, each (transcript) -> {assertion, passed, reasoning}
+│   ├── harness.py         # python -m evals.harness --trials N [--task ID]
+│   └── README.md          # How to run + how to add a task from a real failure
+├── transcripts/          # Gitignored JSONL Transcript records, one file per day
 ├── frontend/             # Vite + React + Tailwind app
 │   └── src/
 │       ├── App.jsx       # Auth gate (login/signup vs. app shell), header with user name + Profile/Logout
@@ -79,6 +87,8 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 **Slice 6 (done): Auth + user profiles.** Replaced hardcoded `backend/profiles.py` with real accounts. `backend/auth.py` handles bcrypt password hashing and a DB-backed `sessions` table; `get_current_user` is a FastAPI dependency that reads the `session_token` httponly cookie. New `users` and `profiles` tables (`backend/users.py`) hold email/password/name and height_inches/weight_lbs/target_weight_lbs/dietary_restrictions/fitness_goals/notes — BMI is computed on the fly via `compute_bmi`, never stored. The frontend gates on `GET /api/auth/me`: unauthenticated users see `AuthPage` (login/signup toggle); authenticated users see the chat plus a `ProfilePage` for editing their stats. `plans`/`agent_runs`/`feedback`/`preference_summaries` now key on `user_id` instead of `person_name` (migrated via the one-time `backend/migrate_to_auth.py`). Both agents' system prompts include a "stats" block (height/weight/target/BMI) when those fields are set.
 
 **Slice 7 (done): View/correct preference summary (PRD stories 63-64).** `GET /api/preferences` returns the user's `preference_summaries` row (or an empty `EMPTY_SUMMARY` shape if no feedback yet). `ProfilePage` renders a "What Franky Knows About You" section listing `liked_meals`/`disliked_meals`/`liked_workouts`/`disliked_workouts` as removable tags. Clicking the `×` on a tag calls `POST /api/preferences/forget` (`backend/preferences.forget_item`), which deletes that user's `feedback` rows for the `(item_type, item_name)` and recomputes the summary — so a corrected preference won't reappear unless the user re-rates that item.
+
+**Slice 8 (done): Transcript observability + eval harness.** Full spec in [`docs/SLICE_8_OBSERVABILITY_EVALS_PLAN.md`](docs/SLICE_8_OBSERVABILITY_EVALS_PLAN.md). Every agent call (coordinator routing + meal/exercise specialist) builds a `Transcript` (`backend/transcripts.py`) — system prompt, full serialized message history, extracted tool-call steps, final output, structured outcome, token usage, latency, model, `agent_type`, `agent_invoked`. `/api/chat` appends each turn's transcripts to gitignored `transcripts/<date>.jsonl` and logs `agent_invoked`/`transcript_id` pointer columns on `agent_runs` — no prompt content reaches Postgres. `python -m backend.view_transcript [--last N] [--agent ...] [--invoked ...] [--id ...]` pretty-prints them. The `evals/` package replays a seed set of 7 tasks through `run_coordinator()` (DB-free) for `k` trials via `python -m evals.harness --trials N [--task ID]`, grades each trial's Transcript with code-based + LLM-as-judge graders, and reports pass@k/pass^k.
 
 ### How the meal agent works
 - `meal_agent.run_meal_agent(messages, profile, current_plan)` runs the tool-use loop.
@@ -131,13 +141,20 @@ A successful turn inserts **two rows** with the same `created_at`: `coordinator`
 
 So "no new rows after sending a message" means either it hit the grocery shortcut or the request errored — check `/tmp/uvicorn.log` or the browser's network tab for a non-200 response.
 
+### How transcripts and the eval harness work
+- `backend/transcripts.build_transcript(...)` assembles a `Transcript` dict (`transcript_id`, `created_at`, `agent_type`, `agent_invoked`, `model`, `system`, `inputs`, `messages`, `steps`, `output`, `outcome`, `usage`, `latency_ms`) from an agent call's system prompt, input messages, and final history. `serialize_messages` converts Anthropic SDK content blocks (text/tool_use/tool_result) to JSON-safe dicts; `extract_steps` pairs each `tool_use` with its `tool_result` by `tool_use_id` (a `tool_use` with no result — e.g. the coordinator's forced `route` call — becomes a step with `result=None`).
+- `run_meal_agent`/`run_exercise_agent` return a `transcript` alongside their existing fields; `coordinator._route` builds its own transcript for the routing call, and `run_coordinator` sets `agent_invoked` on both transcripts and includes them in each `agent_runs` entry.
+- `/api/chat` calls `write_transcript(transcript)` for each `agent_runs` entry (appends to `transcripts/<date>.jsonl`) and stores `agent_invoked`/`transcript_id` on the corresponding `agent_runs` row — `agent_runs` is a queryable index only; **no prompt content lives in Postgres**.
+- `python -m backend.view_transcript --last N` (optionally `--agent`/`--invoked`/`--id`/`--dir`) pretty-prints transcripts: system prompt, every message (including tool_use/tool_result), extracted tool calls, final output, outcome, usage, latency.
+- `evals/tasks.py` holds the seed `TASKS` list (`meal_high_protein`, `meal_vegetarian_compliance`, `exercise_dumbbell_only`, `routing_recipe_howto`, `routing_workout_split`, `clarify_before_plan`, `no_invented_macros`) — each a `{id, description, inputs, profile, current_meal_plan, current_workout_plan, success_criteria, graders, source}` dict.
+- `evals/graders.py` provides graders — `(transcript) -> {assertion, passed, reasoning}` — that read only `transcript["outcome"]`/`transcript["agent_invoked"]`/`transcript["steps"]`, never the live tool-call path. `judge(rubric)` is the LLM-as-judge grader (forced tool call on Haiku).
+- `python -m evals.harness --trials N [--task ID]` runs each task `N` times via `run_coordinator()` (DB-free, fresh synthetic profile + inputs per trial), grades each trial, reports pass@N/pass^N per task and overall, and writes every trial's Transcript to `evals/results/<timestamp>/<task_id>-trial<n>.jsonl` (gitignored). **Makes real Anthropic + Spoonacular/ExerciseDB calls — keep `--trials` small.**
+- See `evals/README.md` for how to add a new task from a real captured transcript (via `promote_to_task`).
+
 ## Decisions Made This Session
 - **PostgreSQL from the start** (not SQLite) — matches the PRD target. Installed via `brew install postgresql@17`.
 - **Session-cookie auth** (not JWT) — `users`/`profiles`/`sessions` tables, bcrypt password hashing, replacing hardcoded `profiles.py`.
 - **Vertical slices over horizontal layers** — ship one feature through all layers at a time.
-
-## Roadmap (next slices)
-- **Slice 8 (planned, not started): transcript observability + eval harness.** Full execution spec in [`docs/SLICE_8_OBSERVABILITY_EVALS_PLAN.md`](docs/SLICE_8_OBSERVABILITY_EVALS_PLAN.md). Phase 1: capture a canonical JSONL `Transcript` per agent call (system/messages/tool-calls/output/outcome/tokens/latency/`agent_invoked`), demote `agent_runs` to a queryable index (no prompt content in the DB), add a `backend/view_transcript.py` CLI. Phase 2: an `evals/` harness (Task/Trial/Grader, code-based + LLM-as-judge, pass@k/pass^k) that replays tasks through `run_coordinator` using the same Transcript format. Mapped to Anthropic's "Demystifying Evals for AI Agents." See the 2026-06-12 decision-log entry in IMPLEMENTATION_PLAN.md for the design rationale.
 
 ## Coding Conventions
 
