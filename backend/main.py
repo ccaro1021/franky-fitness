@@ -15,6 +15,7 @@ from backend.auth import (
 from backend.coordinator import run_coordinator
 from backend.database import get_connection, setup_tables
 from backend.preferences import EMPTY_SUMMARY, forget_item, get_preference_summary, record_feedback
+from backend.transcripts import write_transcript
 from backend.users import build_profile_context, create_user, get_profile, get_user_by_email, update_profile
 from grocery import generate_grocery_list
 
@@ -219,10 +220,21 @@ def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     with get_connection() as conn:
         with conn.cursor() as cur:
             for run in result["agent_runs"]:
+                transcript = run["transcript"]
+                write_transcript(transcript)
                 cur.execute(
-                    """INSERT INTO agent_runs (agent_type, user_id, input_tokens, output_tokens, latency_ms)
-                       VALUES (%s, %s, %s, %s, %s)""",
-                    (run["agent_type"], user["id"], run["input_tokens"], run["output_tokens"], run["latency_ms"]),
+                    """INSERT INTO agent_runs
+                       (agent_type, user_id, input_tokens, output_tokens, latency_ms, agent_invoked, transcript_id)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    (
+                        run["agent_type"],
+                        user["id"],
+                        run["input_tokens"],
+                        run["output_tokens"],
+                        run["latency_ms"],
+                        run["agent_invoked"],
+                        transcript["transcript_id"],
+                    ),
                 )
         conn.commit()
 

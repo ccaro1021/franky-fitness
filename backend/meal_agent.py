@@ -3,9 +3,13 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 from spoonacular import get_recipe, search_recipes
 
+from backend.transcripts import build_transcript
+
 load_dotenv()
 
 client = Anthropic()
+
+MODEL = "claude-sonnet-4-6"
 
 _DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 _MEAL_ORDER = ['breakfast', 'lunch', 'dinner', 'snack']
@@ -302,7 +306,7 @@ def run_meal_agent(
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=MODEL,
             max_tokens=4096,
             system=system,
             tools=TOOLS,
@@ -338,7 +342,7 @@ def run_meal_agent(
 
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6",
+                model=MODEL,
                 max_tokens=4096,
                 system=system,
                 tools=TOOLS,
@@ -353,6 +357,20 @@ def run_meal_agent(
     message = next(b.text for b in response.content if hasattr(b, "text"))
     latency_ms = round((time.time() - start) * 1000)
 
+    final_history = history + [{"role": "assistant", "content": response.content}]
+
+    transcript = build_transcript(
+        agent_type="meal_agent",
+        model=MODEL,
+        system=system,
+        inputs=messages,
+        history=final_history,
+        output=message,
+        outcome={"meal_plan": meal_plan, "recipe": recipe},
+        usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
+        latency_ms=latency_ms,
+    )
+
     return {
         "message": message,
         "meal_plan": meal_plan,
@@ -360,4 +378,5 @@ def run_meal_agent(
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "latency_ms": latency_ms,
+        "transcript": transcript,
     }

@@ -64,6 +64,8 @@ def setup_tables():
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 )
             """)
+            cur.execute("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS agent_invoked VARCHAR(20)")
+            cur.execute("ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS transcript_id VARCHAR(32)")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS feedback (
                     id SERIAL PRIMARY KEY,

@@ -5,9 +5,13 @@ from dotenv import load_dotenv
 
 from exercisedb import search_exercises
 
+from backend.transcripts import build_transcript
+
 load_dotenv()
 
 client = Anthropic()
+
+MODEL = "claude-sonnet-4-6"
 
 _DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -249,7 +253,7 @@ def run_exercise_agent(
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=MODEL,
             max_tokens=4096,
             system=system,
             tools=TOOLS,
@@ -282,7 +286,7 @@ def run_exercise_agent(
 
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6",
+                model=MODEL,
                 max_tokens=4096,
                 system=system,
                 tools=TOOLS,
@@ -297,10 +301,25 @@ def run_exercise_agent(
     message = next(b.text for b in response.content if hasattr(b, "text"))
     latency_ms = round((time.time() - start) * 1000)
 
+    final_history = history + [{"role": "assistant", "content": response.content}]
+
+    transcript = build_transcript(
+        agent_type="exercise_agent",
+        model=MODEL,
+        system=system,
+        inputs=messages,
+        history=final_history,
+        output=message,
+        outcome={"workout_plan": workout_plan},
+        usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
+        latency_ms=latency_ms,
+    )
+
     return {
         "message": message,
         "workout_plan": workout_plan,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "latency_ms": latency_ms,
+        "transcript": transcript,
     }

@@ -3,3 +3,5 @@ venv/
 __pycache__/
 .DS_Store
 exercise_plan_*.json
+transcripts/
+evals/results/
