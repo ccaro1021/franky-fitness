@@ -137,7 +137,7 @@ So "no new rows after sending a message" means either it hit the grocery shortcu
 - **Vertical slices over horizontal layers** — ship one feature through all layers at a time.
 
 ## Roadmap (next slices)
-- None currently planned — see `docs/IMPLEMENTATION_PLAN.md` for the full build order and decision log.
+- **Slice 8 (planned, not started): transcript observability + eval harness.** Full execution spec in [`docs/SLICE_8_OBSERVABILITY_EVALS_PLAN.md`](docs/SLICE_8_OBSERVABILITY_EVALS_PLAN.md). Phase 1: capture a canonical JSONL `Transcript` per agent call (system/messages/tool-calls/output/outcome/tokens/latency/`agent_invoked`), demote `agent_runs` to a queryable index (no prompt content in the DB), add a `backend/view_transcript.py` CLI. Phase 2: an `evals/` harness (Task/Trial/Grader, code-based + LLM-as-judge, pass@k/pass^k) that replays tasks through `run_coordinator` using the same Transcript format. Mapped to Anthropic's "Demystifying Evals for AI Agents." See the 2026-06-12 decision-log entry in IMPLEMENTATION_PLAN.md for the design rationale.
 
 ## Coding Conventions
 
