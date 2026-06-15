@@ -24,6 +24,14 @@ function textToArray(text) {
     .filter(Boolean)
 }
 
+function formatHeight(totalInches) {
+  if (totalInches === null || totalInches === undefined || totalInches === '') return null
+  const feet = Math.floor(totalInches / 12)
+  const inches = totalInches - feet * 12
+  const inchesStr = Number.isInteger(inches) ? inches : inches.toFixed(1)
+  return `${feet}'${inchesStr}"`
+}
+
 const inputClass =
   'mt-1 w-full border border-border bg-bg rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:bg-surface transition-colors'
 
@@ -34,7 +42,8 @@ export default function ProfilePage() {
   const [saved, setSaved] = useState(false)
   const [bmi, setBmi] = useState(null)
 
-  const [heightInches, setHeightInches] = useState('')
+  const [heightFeet, setHeightFeet] = useState('')
+  const [heightInchesPart, setHeightInchesPart] = useState('')
   const [weightLbs, setWeightLbs] = useState('')
   const [targetWeightLbs, setTargetWeightLbs] = useState('')
   const [fitnessGoals, setFitnessGoals] = useState('')
@@ -47,7 +56,15 @@ export default function ProfilePage() {
   useEffect(() => {
     getProfile()
       .then(profile => {
-        setHeightInches(profile.height_inches ?? '')
+        if (profile.height_inches == null) {
+          setHeightFeet('')
+          setHeightInchesPart('')
+        } else {
+          const feet = Math.floor(profile.height_inches / 12)
+          const inches = profile.height_inches - feet * 12
+          setHeightFeet(feet)
+          setHeightInchesPart(Number.isInteger(inches) ? inches : Number(inches.toFixed(1)))
+        }
         setWeightLbs(profile.weight_lbs ?? '')
         setTargetWeightLbs(profile.target_weight_lbs ?? '')
         setFitnessGoals(arrayToText(profile.fitness_goals))
@@ -78,8 +95,12 @@ export default function ProfilePage() {
     setError(null)
     setSaved(false)
     try {
+      const totalHeightInches =
+        heightFeet === '' && heightInchesPart === ''
+          ? null
+          : Number(heightFeet || 0) * 12 + Number(heightInchesPart || 0)
       const updated = await updateProfile({
-        height_inches: heightInches === '' ? null : Number(heightInches),
+        height_inches: totalHeightInches,
         weight_lbs: weightLbs === '' ? null : Number(weightLbs),
         target_weight_lbs: targetWeightLbs === '' ? null : Number(targetWeightLbs),
         fitness_goals: textToArray(fitnessGoals),
@@ -105,7 +126,13 @@ export default function ProfilePage() {
         {/* Stats summary card */}
         <div className="bg-surface rounded-2xl border border-border shadow-sm p-5">
           <h2 className="font-display font-bold text-lg text-ink mb-4">Your Stats</h2>
-          <div className="grid grid-cols-3 gap-3 text-center">
+          <div className="grid grid-cols-2 gap-3 text-center">
+            <div className="bg-brand-light rounded-xl py-3">
+              <p className="text-xs font-semibold text-ink-soft uppercase tracking-wide">Height</p>
+              <p className="font-display font-bold text-xl text-brand-dark mt-0.5">
+                {formatHeight(heightFeet === '' && heightInchesPart === '' ? null : Number(heightFeet || 0) * 12 + Number(heightInchesPart || 0)) ?? '—'}
+              </p>
+            </div>
             <div className="bg-brand-light rounded-xl py-3">
               <p className="text-xs font-semibold text-ink-soft uppercase tracking-wide">Weight</p>
               <p className="font-display font-bold text-xl text-brand-dark mt-0.5">
@@ -133,14 +160,29 @@ export default function ProfilePage() {
 
           <div className="grid grid-cols-2 gap-4">
             <label className="block">
-              <span className="text-xs font-semibold text-ink-soft">Height (in)</span>
-              <input
-                type="number"
-                step="0.1"
-                value={heightInches}
-                onChange={e => setHeightInches(e.target.value)}
-                className={inputClass}
-              />
+              <span className="text-xs font-semibold text-ink-soft">Height</span>
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  placeholder="5"
+                  value={heightFeet}
+                  onChange={e => setHeightFeet(e.target.value)}
+                  className={`${inputClass} mt-0 w-1/2`}
+                />
+                <span className="text-sm text-ink-soft">ft</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  placeholder="8"
+                  value={heightInchesPart}
+                  onChange={e => setHeightInchesPart(e.target.value)}
+                  className={`${inputClass} mt-0 w-1/2`}
+                />
+                <span className="text-sm text-ink-soft">in</span>
+              </div>
             </label>
             <label className="block">
               <span className="text-xs font-semibold text-ink-soft">Weight (lbs)</span>
