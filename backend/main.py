@@ -19,7 +19,7 @@ from backend.preferences import EMPTY_SUMMARY, forget_item, get_preference_summa
 from backend.transcripts import write_transcript
 from backend.users import build_profile_context, create_user, get_profile, get_user_by_email, update_profile
 from grocery import generate_grocery_list
-from spoonacular import get_recipe
+from spoonacular import get_recipe, search_recipes
 
 GROCERY_LIST_KEYWORDS = ["grocery list", "shopping list"]
 SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
@@ -436,3 +436,19 @@ def get_grocery_list(plan_id: int, user: dict = Depends(get_current_user)):
     items = generate_grocery_list(plan)
     missing = [m["name"] for m in plan.get("meals", []) if not m.get("ingredients_fetched")]
     return {"items": [item.model_dump() for item in items], "missing_meals": missing or None}
+
+
+@app.get("/api/meals/alternatives")
+def meal_alternatives(
+    meal_type: str,
+    max_calories: int | None = None,
+    query: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    search_query = (query or "").strip() or meal_type
+    filters = {"maxCalories": max_calories} if max_calories else {}
+    try:
+        meals = search_recipes(query=search_query, number=5, **filters)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Recipe search is temporarily unavailable: {e}")
+    return [m.model_dump() for m in meals]

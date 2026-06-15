@@ -188,7 +188,7 @@ When building a weekly meal plan:
 4. Plan all 7 days before calling finalize_meal_plan.
 5. For fat loss + muscle building, target high protein (at least 30g per meal), moderate carbs, and controlled calories.
 6. Avoid anything that violates the person's dietary restrictions.
-7. Once the full plan is assembled, call finalize_meal_plan with structured data, then summarize it conversationally.
+7. Once the full plan is assembled, call finalize_meal_plan with structured data, then reply with a short 1-2 sentence intro only (e.g. "Here's your plan for the week — see below. You can swap or remove any meals before saving."). Do not restate the meals, calories, or macros in your text — the table below already shows them.
 
 If you need clarifying information (calorie target, foods to avoid, cooking time available), ask before generating the plan. One focused question at a time.
 

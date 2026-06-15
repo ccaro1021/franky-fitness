@@ -116,6 +116,15 @@ export async function getGroceryList(planId) {
   return res.json()
 }
 
+export async function getMealAlternatives({ mealType, maxCalories, query }) {
+  const params = new URLSearchParams({ meal_type: mealType })
+  if (maxCalories) params.set('max_calories', maxCalories)
+  if (query) params.set('query', query)
+  const res = await fetch(`/api/meals/alternatives?${params}`, { credentials: 'include' })
+  if (!res.ok) throw new Error('Failed to load alternatives')
+  return res.json()
+}
+
 export async function submitFeedback(planId, itemType, itemName, rating, note = null) {
   const res = await fetch('/api/feedback', {
     method: 'POST',
