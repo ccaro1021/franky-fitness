@@ -1,17 +1,17 @@
-"""Unit tests for grocery list generation (summing, categorization, structure).
+"""Unit tests for grocery list generation (summing, structure).
 
-Normalization (raw ingredient name -> purchasable canonical name) is now an
-LLM-backed step (backend/grocery_agent.py) cached in the ingredient_normalizations
-table — these tests stub that step by feeding `canonical_name` directly on each
-ingredient, and assert generate_grocery_list's summing/categorization logic
-behaves correctly given those canonical names.
+Normalization (raw ingredient name -> purchasable canonical name) and unit/category
+reconciliation are now LLM-backed steps (backend/grocery_agent.py) — these tests
+stub those steps by feeding `canonical_name`, `unit`, and `category` directly on
+each ingredient, and assert generate_grocery_list's summing logic behaves
+correctly given that pre-reconciled data.
 
 Run from the repo root: `python -m unittest tests.test_grocery`
 """
 
 import unittest
 
-from grocery import categorize_ingredient, generate_grocery_list
+from grocery import generate_grocery_list
 
 
 def _plan(*ingredients: dict) -> dict:
@@ -19,14 +19,23 @@ def _plan(*ingredients: dict) -> dict:
     return {"meals": [{"ingredients": list(ingredients)}]}
 
 
-def _ing(name: str, quantity: float = 1.0, unit: str = "unit", canonical_name: str | None = None) -> dict:
+def _ing(
+    name: str,
+    quantity: float = 1.0,
+    unit: str = "unit",
+    canonical_name: str | None = None,
+    category: str | None = None,
+) -> dict:
     """Build one ingredient dict in the shape generate_grocery_list expects."""
-    return {
+    ingredient = {
         "name": name,
         "canonical_name": canonical_name if canonical_name is not None else name,
         "quantity_per_serving": quantity,
         "unit": unit,
     }
+    if category is not None:
+        ingredient["category"] = category
+    return ingredient
 
 
 def _by_name(items) -> dict[str, object]:
@@ -172,10 +181,13 @@ class StructuralTest(unittest.TestCase):
         )
         self.assertEqual(items[0].total_quantity, 2)
 
-    def test_canonical_item_categorizes_correctly(self):
-        # Normalization must not change which store section an item lands in.
-        items = generate_grocery_list(_plan(_ing("egg yolks", 2, canonical_name="eggs")))
-        self.assertEqual(items[0].category, categorize_ingredient("eggs"))
+    def test_category_passes_through_from_ingredient_data(self):
+        items = generate_grocery_list(_plan(_ing("egg yolks", 2, canonical_name="eggs", category="protein")))
+        self.assertEqual(items[0].category, "protein")
+
+    def test_category_defaults_to_pantry_when_missing(self):
+        items = generate_grocery_list(_plan(_ing("kale", 1, "cup")))
+        self.assertEqual(items[0].category, "pantry")
 
 
 if __name__ == "__main__":

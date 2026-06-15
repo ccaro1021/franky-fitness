@@ -106,6 +106,140 @@ def _upsert_cache(mapping: dict[str, str]) -> None:
         conn.commit()
 
 
+SYSTEM_PROMPT_RECONCILE = """You reconcile grocery-shopping units and assign store \
+categories for purchasable ingredients drawn from a meal plan.
+
+For each ingredient, you're given every unit it appears in across the plan (e.g. \
+"olive oil" might appear in both "tbsp" and "cup"). For each:
+
+- Pick ONE `target_unit` suited for grocery shopping — either a count \
+("unit", "clove", "slice", "can", etc.) for discrete items, or a standard \
+kitchen measure ("cup", "tbsp", "tsp", "oz", "lb", "g") for everything else. \
+If the ingredient only appears in one unit, that unit IS the target_unit.
+- For each unit it appears in, give a numeric `multiplier` that converts a \
+quantity in that unit into the target_unit (e.g. converting "tbsp" to a \
+"cup" target gives multiplier 0.0625, since 1 tbsp = 1/16 cup). The unit \
+that equals the target_unit gets multiplier 1.0.
+- Assign one `category` — the store section a shopper would find this item in: \
+"produce", "protein", "dairy", "frozen", or "pantry" (the catch-all for spices, \
+oils, grains, canned goods, etc.).
+
+Every ingredient must get exactly one category and a multiplier for every unit \
+listed for it."""
+
+TOOLS_RECONCILE = [
+    {
+        "name": "reconcile_units",
+        "description": "Record the target shopping unit, per-unit conversion multipliers, and store category for each ingredient.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "canonical_name": {"type": "string"},
+                            "category": {
+                                "type": "string",
+                                "enum": ["produce", "protein", "dairy", "frozen", "pantry"],
+                            },
+                            "units": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "unit": {"type": "string"},
+                                        "target_unit": {"type": "string"},
+                                        "multiplier": {"type": "number"},
+                                    },
+                                    "required": ["unit", "target_unit", "multiplier"],
+                                },
+                            },
+                        },
+                        "required": ["canonical_name", "category", "units"],
+                    },
+                },
+            },
+            "required": ["items"],
+        },
+    },
+]
+
+
+def reconcile_quantities(items: list[dict]) -> tuple[dict[tuple[str, str], dict], dict | None]:
+    """Reconcile shopping units and assign a store category for canonical ingredients.
+
+    `items` is a list of {"canonical_name": str, "unit": str} pairs (one per
+    distinct unit a canonical ingredient appears in across a plan).
+
+    Returns (mapping from (canonical_name.lower(), unit.lower()) -> {target_unit,
+    multiplier, category}, transcript). This step is uncached — every call makes
+    an LLM call, so `transcript` is always set unless `items` is empty.
+    """
+    if not items:
+        return {}, None
+
+    grouped: dict[str, set[str]] = {}
+    for item in items:
+        grouped.setdefault(item["canonical_name"].lower(), set()).add(item["unit"].lower())
+
+    lines = [
+        f"{name}: " + ", ".join(sorted(units))
+        for name, units in sorted(grouped.items())
+    ]
+
+    start = time.time()
+    inputs = [{"role": "user", "content": "Reconcile units and categorize these ingredients:\n" + "\n".join(lines)}]
+
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=4096,
+            system=SYSTEM_PROMPT_RECONCILE,
+            tools=TOOLS_RECONCILE,
+            tool_choice={"type": "tool", "name": "reconcile_units"},
+            messages=inputs,
+        )
+    except Exception as e:
+        raise RuntimeError(f"Quantity reconciliation call failed: {e}") from e
+
+    tool_use = next(b for b in response.content if b.type == "tool_use")
+
+    mapping: dict[tuple[str, str], dict] = {}
+    for entry in tool_use.input.get("items", []):
+        name = entry["canonical_name"].lower()
+        category = entry["category"]
+        for unit_entry in entry.get("units", []):
+            mapping[(name, unit_entry["unit"].lower())] = {
+                "target_unit": unit_entry["target_unit"],
+                "multiplier": unit_entry["multiplier"],
+                "category": category,
+            }
+
+    # Every requested (name, unit) pair must resolve; fall back to identity for
+    # any the model dropped so callers always get a usable entry.
+    for name, units in grouped.items():
+        for unit in units:
+            mapping.setdefault((name, unit), {"target_unit": unit, "multiplier": 1.0, "category": "pantry"})
+
+    latency_ms = round((time.time() - start) * 1000)
+    final_history = inputs + [{"role": "assistant", "content": response.content}]
+    transcript = build_transcript(
+        agent_type="grocery_reconciler",
+        model=MODEL,
+        system=SYSTEM_PROMPT_RECONCILE,
+        inputs=inputs,
+        history=final_history,
+        output=str(mapping),
+        outcome={"reconciled": {f"{k[0]}|{k[1]}": v for k, v in mapping.items()}},
+        usage={"input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens},
+        latency_ms=latency_ms,
+    )
+
+    return mapping, transcript
+
+
 def normalize_ingredients(raw_names: list[str]) -> tuple[dict[str, str], dict | None]:
     """Map each raw ingredient name to its purchasable canonical name.
 

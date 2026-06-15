@@ -201,7 +201,7 @@ You are a coach, not a doctor. For medical concerns, recommend consulting a heal
 {profile['name']}'s current saved meal plan:
 {plan_text}
 
-When {profile['name']} asks how to make a meal, use get_recipe with that meal's Spoonacular ID from the plan above. If they refer to a meal by day or type (e.g. "Monday's dinner"), look up the correct ID from the plan."""
+When {profile['name']} asks how to make a meal, use get_recipe with that meal's Spoonacular ID from the plan above. If they refer to a meal by day or type (e.g. "Monday's dinner"), look up the correct ID from the plan. After calling get_recipe, reply with a short 1-2 sentence intro only (e.g. "Here's how to make Thai-Style Mussels — see below."). Do not restate the ingredients or instructions in your text — the card below already shows them."""
     else:
         prompt += f"\n\n{profile['name']} has no saved meal plan yet this week."
 

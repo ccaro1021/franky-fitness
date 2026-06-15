@@ -14,7 +14,7 @@ from backend.auth import (
 )
 from backend.coordinator import run_coordinator
 from backend.database import get_connection, setup_tables
-from backend.grocery_agent import normalize_ingredients
+from backend.grocery_agent import normalize_ingredients, reconcile_quantities
 from backend.preferences import EMPTY_SUMMARY, forget_item, get_preference_summary, record_feedback
 from backend.saved_recipes import delete_saved_recipe, list_saved_recipes, save_recipe
 from backend.transcripts import write_transcript
@@ -165,14 +165,17 @@ def forget_my_preference(req: ForgetPreferenceRequest, user: dict = Depends(get_
     return forget_item(user["id"], req.item_type, req.item_name)
 
 
-def _prepare_grocery_data(plan_id: int, plan: dict) -> tuple[dict, dict | None]:
-    """Fetch missing ingredients and normalize their names for a saved meal plan.
+def _prepare_grocery_data(plan_id: int, plan: dict) -> tuple[dict, list[dict]]:
+    """Fetch missing ingredients and normalize/reconcile them for a saved meal plan.
 
     For each meal without `ingredients_fetched`, fetches the full recipe from
     Spoonacular (a failed fetch leaves that meal pending for the next request).
     Any ingredient without a `canonical_name` is normalized in one batch via
-    grocery_agent.normalize_ingredients. Persists changes back onto plans.content
-    so repeat requests are pure code. Returns (plan, normalizer transcript or None).
+    grocery_agent.normalize_ingredients. Any ingredient with a `canonical_name`
+    but no `category` then has its unit/quantity/category reconciled in one
+    batch via grocery_agent.reconcile_quantities. Persists changes back onto
+    plans.content so repeat requests are pure code. Returns (plan, transcripts)
+    where transcripts has 0-2 entries (normalizer, reconciler).
     """
     changed = False
     for meal in plan.get("meals", []):
@@ -204,13 +207,37 @@ def _prepare_grocery_data(plan_id: int, plan: dict) -> tuple[dict, dict | None]:
         if "canonical_name" not in ing
     }
 
-    transcript = None
+    transcripts = []
     if raw_names:
         mapping, transcript = normalize_ingredients(list(raw_names))
+        if transcript:
+            transcripts.append(transcript)
         for meal in plan.get("meals", []):
             for ing in meal.get("ingredients", []):
                 if "canonical_name" not in ing:
                     ing["canonical_name"] = mapping.get(ing["name"].lower(), ing["name"].lower())
+                    changed = True
+
+    to_reconcile = {
+        (ing["canonical_name"].lower(), ing["unit"].lower())
+        for meal in plan.get("meals", [])
+        for ing in meal.get("ingredients", [])
+        if "canonical_name" in ing and "category" not in ing
+    }
+
+    if to_reconcile:
+        mapping, transcript = reconcile_quantities(
+            [{"canonical_name": name, "unit": unit} for name, unit in to_reconcile]
+        )
+        if transcript:
+            transcripts.append(transcript)
+        for meal in plan.get("meals", []):
+            for ing in meal.get("ingredients", []):
+                if "canonical_name" in ing and "category" not in ing:
+                    reconciled = mapping[(ing["canonical_name"].lower(), ing["unit"].lower())]
+                    ing["quantity_per_serving"] *= reconciled["multiplier"]
+                    ing["unit"] = reconciled["target_unit"]
+                    ing["category"] = reconciled["category"]
                     changed = True
 
     if changed:
@@ -219,11 +246,11 @@ def _prepare_grocery_data(plan_id: int, plan: dict) -> tuple[dict, dict | None]:
                 cur.execute("UPDATE plans SET content = %s WHERE id = %s", (json.dumps(plan), plan_id))
             conn.commit()
 
-    return plan, transcript
+    return plan, transcripts
 
 
 def _log_grocery_transcript(transcript: dict, user_id: int) -> None:
-    """Write a grocery_normalizer transcript and its agent_runs row (only happens on cache misses)."""
+    """Write a grocery_normalizer/grocery_reconciler transcript and its agent_runs row."""
     write_transcript(transcript)
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -278,8 +305,8 @@ def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     # Grocery lists are pure code, not an agent call — short-circuit if asked for one
     last_message = messages[-1]["content"].lower() if messages else ""
     if current_meal_plan and any(kw in last_message for kw in GROCERY_LIST_KEYWORDS):
-        plan, transcript = _prepare_grocery_data(current_meal_plan_id, current_meal_plan)
-        if transcript:
+        plan, transcripts = _prepare_grocery_data(current_meal_plan_id, current_meal_plan)
+        for transcript in transcripts:
             _log_grocery_transcript(transcript, user["id"])
 
         items = generate_grocery_list(plan)
@@ -465,8 +492,8 @@ def get_grocery_list(plan_id: int, user: dict = Depends(get_current_user)):
     if not row:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    plan, transcript = _prepare_grocery_data(plan_id, row[0])
-    if transcript:
+    plan, transcripts = _prepare_grocery_data(plan_id, row[0])
+    for transcript in transcripts:
         _log_grocery_transcript(transcript, user["id"])
 
     items = generate_grocery_list(plan)
