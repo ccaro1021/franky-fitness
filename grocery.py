@@ -36,11 +36,83 @@ _INGREDIENT_ALIASES: dict[str, str] = {
     "white sugar": "sugar",
     "garlic clove": "garlic",
     "garlic cloves": "garlic",
-    "minced garlic": "garlic",
     "fresh ginger": "ginger",
     "chicken stock": "chicken broth",
     "vegetable stock": "vegetable broth",
     "beef stock": "beef broth",
+
+    # More singular/plural and varietal normalization for produce
+    # Pepper color is a distinct purchase, so only depluralize within each color.
+    "bell peppers": "bell pepper",
+    "red bell peppers": "red bell pepper",
+    "green bell peppers": "green bell pepper",
+    "yellow bell peppers": "yellow bell pepper",
+    "jalapeno": "jalapeño",
+    "jalapenos": "jalapeño",
+    "jalapeños": "jalapeño",
+    "shallots": "shallot",
+    "zucchinis": "zucchini",
+    "apples": "apple",
+    "bananas": "banana",
+    "avocados": "avocado",
+    "strawberries": "strawberry",
+    "blueberries": "blueberry",
+    "raspberries": "raspberry",
+    "blackberries": "blackberry",
+    "sweet potatoes": "sweet potato",
+
+    # Fresh herbs normalize to the base produce item; dried herbs are a
+    # separate spice-aisle purchase, so they keep the "dried" descriptor.
+    "fresh basil": "basil",
+    "dried basil": "dried basil",
+    "fresh cilantro": "cilantro",
+    "fresh parsley": "parsley",
+    "dried parsley": "dried parsley",
+    "fresh thyme": "thyme",
+    "dried thyme": "dried thyme",
+    "fresh rosemary": "rosemary",
+    "dried rosemary": "dried rosemary",
+    "fresh oregano": "oregano",
+    "dried oregano": "dried oregano",
+    "fresh dill": "dill",
+    "fresh mint": "mint",
+    "fresh chives": "chives",
+
+    # Dairy synonyms — milk fat content collapses to one carton; salted vs.
+    # unsalted butter stay distinct because it changes which stick you buy.
+    "whole milk": "milk",
+    "skim milk": "milk",
+    "2% milk": "milk",
+    "low-fat milk": "milk",
+    "plain greek yogurt": "greek yogurt",
+    "plain yogurt": "yogurt",
+    "heavy whipping cream": "heavy cream",
+    # Drop a redundant "cheese" suffix, but keep any shredded/grated form as
+    # written — pre-shredded is a different purchase from a block.
+    "parmesan cheese": "parmesan",
+    "cheddar cheese": "cheddar",
+    "mozzarella cheese": "mozzarella",
+
+    # Protein cut/size normalization — only depluralize; "boneless skinless"
+    # is a real cut distinction, so it stays as a descriptor.
+    "chicken breasts": "chicken breast",
+    "boneless skinless chicken breasts": "boneless skinless chicken breast",
+    "chicken thighs": "chicken thigh",
+    "boneless skinless chicken thighs": "boneless skinless chicken thigh",
+    "large eggs": "eggs",
+    "large egg": "eggs",
+
+    # Spice/condiment synonyms
+    "crushed red pepper": "red pepper flakes",
+    "crushed red pepper flakes": "red pepper flakes",
+    "cayenne pepper": "cayenne",
+    "ground cumin": "cumin",
+    "ground cinnamon": "cinnamon",
+    "low sodium soy sauce": "soy sauce",
+    "reduced sodium soy sauce": "soy sauce",
+    "light brown sugar": "brown sugar",
+    "dark brown sugar": "brown sugar",
+    "confectioners sugar": "powdered sugar",
 }
 
 # Units for items sold individually — round up to a whole shoppable count.
