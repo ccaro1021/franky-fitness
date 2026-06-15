@@ -139,6 +139,42 @@ Then in a browser:
 
 This exercises the full path: nginx proxy → backend → Cloud SQL + Anthropic/Spoonacular/ExerciseDB APIs, and confirms session cookies survive the proxy.
 
+## Running one-off scripts/migrations against the cloud DB
+
+The Cloud SQL instance has no public-network access configured, and `DATABASE_URL`
+in Secret Manager uses a unix-socket connection string that only works from inside
+Cloud Run (where `--add-cloudsql-instances` mounts `/cloudsql/...`). To run a local
+script (e.g. `python -m backend.migrate_grocery_categories`) against the cloud DB
+from a dev machine, tunnel through the Cloud SQL Auth Proxy:
+
+```bash
+# One-time per machine: download the proxy (darwin/arm64 — adjust for your platform)
+curl -sL -o /tmp/cloud-sql-proxy \
+  https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.2/cloud-sql-proxy.darwin.arm64
+chmod +x /tmp/cloud-sql-proxy
+
+# Start the tunnel (uses your `gcloud auth` token — no ADC setup needed)
+TOKEN=$(gcloud auth print-access-token)
+/tmp/cloud-sql-proxy --port 5433 --token "$TOKEN" \
+  franky-fitness-demo:us-central1:franky-fitness-db &
+
+# Get the appuser password (the host/socket part of the secret doesn't apply locally)
+gcloud secrets versions access latest --secret=DATABASE_URL
+# -> postgresql://appuser:PASSWORD@/franky_fitness?host=/cloudsql/...
+
+# Run the script against the tunnel
+source venv/bin/activate
+DATABASE_URL="postgresql://appuser:PASSWORD@127.0.0.1:5433/franky_fitness" \
+  python -m backend.migrate_grocery_categories
+
+# Stop the tunnel
+pkill -f cloud-sql-proxy
+```
+
+**Caution:** this connects directly to the production database — verify the
+script (and its `DATABASE_URL` override) carefully before running, since there's
+no staging environment.
+
 ## Teardown
 
 When the demo period ends (~2 months):
