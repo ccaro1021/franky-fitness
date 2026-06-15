@@ -62,6 +62,7 @@ franky-fitness/
 │   ├── harness.py         # python -m evals.harness --trials N [--task ID]
 │   └── README.md          # How to run + how to add a task from a real failure
 ├── transcripts/          # Gitignored JSONL Transcript records, one file per day
+├── tests/                # stdlib unittest suite (no API calls) — test_grocery.py covers the alias table
 ├── frontend/             # Vite + React + Tailwind app
 │   └── src/
 │       ├── App.jsx       # Auth gate (login/signup vs. app shell), header with user name + Profile/Logout
@@ -126,6 +127,19 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 source venv/bin/activate && uvicorn backend.main:app --reload   # :8000
 # Terminal 2 — frontend
 cd frontend && npm run dev                                       # :5173 (proxies /api to :8000)
+```
+
+### Running the tests
+The `tests/` package is a stdlib `unittest` suite — fast, deterministic, and
+**no API calls** (unlike the live eval harness in `evals/`). `tests/test_grocery.py`
+covers the grocery alias table: variant merging, the no-collapse invariants from
+the alias audit (bell-pepper colors, fresh vs. dried herbs, ground vs. fresh
+ginger, salted/unsalted butter, etc.), and structural guarantees (lowercase keys,
+one-hop value resolution). Run from the repo root:
+```bash
+source venv/bin/activate
+python -m unittest discover tests      # all unit tests
+python -m unittest tests.test_grocery  # just the grocery alias table
 ```
 
 ### Debugging: checking which agent handled a turn
