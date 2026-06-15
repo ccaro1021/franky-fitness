@@ -121,8 +121,11 @@ quantity in that unit into the target_unit (e.g. converting "tbsp" to a \
 "cup" target gives multiplier 0.0625, since 1 tbsp = 1/16 cup). The unit \
 that equals the target_unit gets multiplier 1.0.
 - Assign one `category` — the store section a shopper would find this item in: \
-"produce", "protein", "dairy", "frozen", or "pantry" (the catch-all for spices, \
-oils, grains, canned goods, etc.).
+"produce" (vegetables, herbs), "protein" (meat, fish, tofu, legumes), "fruit", \
+"dairy_eggs" (milk, cheese, yogurt, eggs), "carbs" (bread, pasta, rice, grains, \
+cereal), or "pantry" (the catch-all for spices, oils, canned goods, condiments, \
+etc.). Frozen items are categorized by what they are (e.g. frozen vegetables \
+-> "produce", frozen chicken -> "protein"), not by being frozen.
 
 Every ingredient must get exactly one category and a multiplier for every unit \
 listed for it."""
@@ -142,7 +145,7 @@ TOOLS_RECONCILE = [
                             "canonical_name": {"type": "string"},
                             "category": {
                                 "type": "string",
-                                "enum": ["produce", "protein", "dairy", "frozen", "pantry"],
+                                "enum": ["produce", "protein", "fruit", "dairy_eggs", "carbs", "pantry"],
                             },
                             "units": {
                                 "type": "array",

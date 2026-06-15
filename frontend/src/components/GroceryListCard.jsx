@@ -1,18 +1,20 @@
-const CATEGORY_ORDER = ['produce', 'protein', 'dairy', 'frozen', 'pantry']
+const CATEGORY_ORDER = ['produce', 'fruit', 'protein', 'dairy_eggs', 'carbs', 'pantry']
 
 const CATEGORY_LABELS = {
   produce: 'Produce',
+  fruit: 'Fruit',
   protein: 'Protein',
-  dairy: 'Dairy',
-  frozen: 'Frozen',
+  dairy_eggs: 'Dairy & Eggs',
+  carbs: 'Carbs',
   pantry: 'Pantry',
 }
 
 const CATEGORY_ICONS = {
   produce: '🥦',
+  fruit: '🍎',
   protein: '🍗',
-  dairy: '🧀',
-  frozen: '🧊',
+  dairy_eggs: '🧀',
+  carbs: '🍞',
   pantry: '🥫',
 }
 
