@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+venv/
+__pycache__/
+**/__pycache__/
+.DS_Store
+transcripts/
+evals/results/
+exercise_plan_*.json
+frontend/node_modules
+frontend/dist
+.claude/
