@@ -1,7 +1,7 @@
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -16,6 +16,7 @@ from backend.coordinator import run_coordinator
 from backend.database import get_connection, setup_tables
 from backend.grocery_agent import normalize_ingredients
 from backend.preferences import EMPTY_SUMMARY, forget_item, get_preference_summary, record_feedback
+from backend.saved_recipes import delete_saved_recipe, list_saved_recipes, save_recipe
 from backend.transcripts import write_transcript
 from backend.users import build_profile_context, create_user, get_profile, get_user_by_email, update_profile
 from grocery import generate_grocery_list
@@ -400,6 +401,41 @@ def get_plan(plan_id: int, user: dict = Depends(get_current_user)):
         "content": row[1],
         "created_at": row[2].isoformat(),
     }
+
+
+@app.delete("/api/plans/{plan_id}")
+def delete_plan(plan_id: int, user: dict = Depends(get_current_user)):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM plans WHERE id = %s AND user_id = %s",
+                (plan_id, user["id"]),
+            )
+            deleted = cur.rowcount > 0
+        conn.commit()
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    return {"ok": True}
+
+
+@app.post("/api/saved-recipes")
+def create_saved_recipe(recipe: dict = Body(...), user: dict = Depends(get_current_user)):
+    recipe_id = save_recipe(user["id"], recipe)
+    return {"id": recipe_id}
+
+
+@app.get("/api/saved-recipes")
+def get_saved_recipes(user: dict = Depends(get_current_user)):
+    return list_saved_recipes(user["id"])
+
+
+@app.delete("/api/saved-recipes/{recipe_id}")
+def remove_saved_recipe(recipe_id: int, user: dict = Depends(get_current_user)):
+    if not delete_saved_recipe(recipe_id, user["id"]):
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    return {"ok": True}
 
 
 @app.post("/api/feedback")

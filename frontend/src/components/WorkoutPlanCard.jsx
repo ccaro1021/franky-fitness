@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { savePlan } from '../api'
 import FeedbackButtons from './FeedbackButtons'
 
-export default function WorkoutPlanCard({ plan }) {
-  const [saved, setSaved] = useState(false)
+export default function WorkoutPlanCard({ plan, savedPlanId = null, initiallySaved = false }) {
+  const [saved, setSaved] = useState(initiallySaved)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-  const [planId, setPlanId] = useState(null)
+  const [planId, setPlanId] = useState(savedPlanId)
 
   async function handleSave() {
     setSaving(true)

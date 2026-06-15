@@ -45,7 +45,7 @@ franky-fitness/
 ├── docs/
 │   └── franky-fitness-prd.md   # Full product requirements doc
 ├── backend/              # FastAPI application
-│   ├── main.py           # API routes: /api/auth/*, /api/profile, /api/chat, /api/plans, /api/plans/{id}/grocery-list, /api/feedback
+│   ├── main.py           # API routes: /api/auth/*, /api/profile, /api/chat, /api/plans, /api/plans/{id}, /api/plans/{id}/grocery-list, /api/feedback, /api/saved-recipes
 │   ├── auth.py           # Password hashing (bcrypt), session create/lookup/delete, get_current_user dependency
 │   ├── users.py          # User + profile CRUD, BMI computation, builds profile context for agent prompts
 │   ├── migrate_to_auth.py # One-time interactive migration: seeds Chris & Kaitlyn accounts, person_name -> user_id
@@ -54,9 +54,10 @@ franky-fitness/
 │   ├── exercise_agent.py # Exercise planning agent — tools, prompt builder, tool-use loop
 │   ├── preferences.py    # Pure code: records feedback and derives a per-user preference summary
 │   ├── grocery_agent.py  # Ingredient name normalization — single batch LLM call, backed by ingredient_normalizations cache
+│   ├── saved_recipes.py  # Pure code: save_recipe/list_saved_recipes/delete_saved_recipe over saved_recipes table
 │   ├── transcripts.py    # Transcript schema + serialize_messages/extract_steps/write_transcript/read_transcripts/promote_to_task
 │   ├── view_transcript.py # CLI to inspect transcripts/*.jsonl (--last/--agent/--invoked/--id)
-│   └── database.py       # psycopg2 connection + table setup (users, profiles, sessions, plans, agent_runs, feedback, preference_summaries, ingredient_normalizations)
+│   └── database.py       # psycopg2 connection + table setup (users, profiles, sessions, plans, agent_runs, feedback, preference_summaries, ingredient_normalizations, saved_recipes)
 ├── evals/                # Eval harness (Task/Trial/Grader, pass@k/pass^k)
 │   ├── tasks.py          # Seed Task set (inputs, synthetic profile, graders)
 │   ├── graders.py        # Code-based + LLM-as-judge graders, each (transcript) -> {assertion, passed, reasoning}
@@ -64,12 +65,12 @@ franky-fitness/
 │   ├── grocery_normalization.py # python -m evals.grocery_normalization — normalization pattern generalization
 │   └── README.md          # How to run + how to add a task from a real failure
 ├── transcripts/          # Gitignored JSONL Transcript records, one file per day
-├── tests/                # stdlib unittest suite (no API calls) — test_grocery.py covers summing/categorization
+├── tests/                # stdlib unittest suite — test_grocery.py covers summing/categorization (no API calls); test_saved_items.py is DB-backed (TestClient against the local Postgres db)
 ├── frontend/             # Vite + React + Tailwind app
 │   └── src/
-│       ├── App.jsx       # Auth gate (login/signup vs. app shell), header with user name + Profile/Logout
+│       ├── App.jsx       # Auth gate (login/signup vs. app shell), header with user name + Chat/Saved/Profile nav + Logout
 │       ├── api.js        # fetch wrappers for the backend (credentials: 'include' for session cookies)
-│       └── components/   # Chat.jsx, AuthPage.jsx, ProfilePage.jsx, MealPlanCard.jsx, RecipeCard.jsx, GroceryListCard.jsx, WorkoutPlanCard.jsx, FeedbackButtons.jsx
+│       └── components/   # Chat.jsx, AuthPage.jsx, ProfilePage.jsx, SavedItemsPage.jsx, MealPlanCard.jsx, RecipeCard.jsx, GroceryListCard.jsx, WorkoutPlanCard.jsx, FeedbackButtons.jsx
 └── venv/                 # Virtual environment (gitignored)
 ```
 
@@ -94,6 +95,8 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 **Slice 8 (done): Transcript observability + eval harness.** Full spec in [`docs/SLICE_8_OBSERVABILITY_EVALS_PLAN.md`](docs/SLICE_8_OBSERVABILITY_EVALS_PLAN.md). Every agent call (coordinator routing + meal/exercise specialist) builds a `Transcript` (`backend/transcripts.py`) — system prompt, full serialized message history, extracted tool-call steps, final output, structured outcome, token usage, latency, model, `agent_type`, `agent_invoked`. `/api/chat` appends each turn's transcripts to gitignored `transcripts/<date>.jsonl` and logs `agent_invoked`/`transcript_id` pointer columns on `agent_runs` — no prompt content reaches Postgres. `python -m backend.view_transcript [--last N] [--agent ...] [--invoked ...] [--id ...]` pretty-prints them. The `evals/` package replays a seed set of 7 tasks through `run_coordinator()` (DB-free) for `k` trials via `python -m evals.harness --trials N [--task ID]`, grades each trial's Transcript with code-based + LLM-as-judge graders, and reports pass@k/pass^k.
 
 **Slice 9 (done): Grocery normalization agent.** Full spec in [`docs/SLICE_9_GROCERY_AGENT_PLAN.md`](docs/SLICE_9_GROCERY_AGENT_PLAN.md). Replaces the hand-maintained `_INGREDIENT_ALIASES` dict with an LLM-backed normalization step — a hybrid, not a full grocery agent: summing/categorization in `grocery.py` are unchanged. `finalize_meal_plan` no longer fetches ingredients; instead each meal gets `ingredients_fetched: false`. At grocery-list-request time (either route), `backend/main.py:_prepare_grocery_data` fetches ingredients for any meal missing them via `spoonacular.get_recipe` (failures leave that meal pending for next time), collects raw ingredient names without a `canonical_name`, and calls `backend.grocery_agent.normalize_ingredients` — which checks the global `ingredient_normalizations` cache table (seeded from the old alias dict + self-maps) and only calls `claude-opus-4-1-20250805` in one batch for cache misses, upserting results back into the cache. The per-ingredient `canonical_name` and per-meal `ingredients_fetched` flag are persisted onto `plans.content` so repeat requests are pure code. `grocery.generate_grocery_list` reads `canonical_name` directly. `python -m evals.grocery_normalization` checks that novel ingredient strings still follow the audited patterns (fresh/dried, color variants, prepared-form != raw-form).
+
+**Slice 11 (done): Saved Items.** New `saved_recipes` table (`id`, `user_id`, `content` JSONB, `created_at`) mirrors the `plans` table pattern; `backend/saved_recipes.py` is a thin CRUD wrapper (`save_recipe`, `list_saved_recipes`, `delete_saved_recipe`), all scoped by `user_id`. New routes in `backend/main.py`: `POST`/`GET /api/saved-recipes`, `DELETE /api/saved-recipes/{id}`, and `DELETE /api/plans/{id}` (all 404 if not found or not owned by the current user). The frontend gets a third "Saved" pill in the header nav (`App.jsx`) alongside Chat/Profile, routing to `SavedItemsPage` — internal Meal Plans / Workout Plans / Recipes sub-tabs, each lazily fetching its list (`listPlans('meal_plan' | 'workout_plan')` / `listSavedRecipes()`) on first activation. Each row shows a date-stamped summary (meal count × days, workout day count, or recipe name + macros) with a confirm-gated `×` to delete (`deletePlan`/`deleteSavedRecipe`); clicking a row expands it into the same `MealPlanCard`/`WorkoutPlanCard`/`RecipeCard` used elsewhere, seeded via new `savedPlanId`/`initiallySaved` props so they render directly in post-save state (feedback buttons, Grocery List button). `RecipeCard` also gets a header-bar Save/Saved button (calls `saveRecipe`) so individually-surfaced recipes ("how do I make X") can be saved on their own — saving the same recipe twice is allowed and creates two rows, consistent with plan-saving. `tests/test_saved_items.py` is the first DB-backed test module — `unittest` + FastAPI `TestClient` against the local Postgres db, covering save/list/delete, double-save, plan deletion, and cross-user ownership checks (404, never another user's data).
 
 ### How the meal agent works
 - `meal_agent.run_meal_agent(messages, profile, current_plan)` runs the tool-use loop, capped at `MAX_TURNS = 10` round-trips. If hit, the loop bails out with a fallback "too much back-and-forth" message and `outcome["hit_max_turns"] = True` in the transcript, instead of looping indefinitely.

@@ -108,6 +108,41 @@ export async function listPlans(type = 'meal_plan') {
   return res.json()
 }
 
+export async function deletePlan(planId) {
+  const res = await fetch(`/api/plans/${planId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  if (!res.ok) throw new Error('Failed to delete plan')
+  return res.json()
+}
+
+export async function saveRecipe(recipe) {
+  const res = await fetch('/api/saved-recipes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(recipe),
+  })
+  if (!res.ok) throw new Error('Failed to save recipe')
+  return res.json()
+}
+
+export async function listSavedRecipes() {
+  const res = await fetch('/api/saved-recipes', { credentials: 'include' })
+  if (!res.ok) throw new Error('Failed to load saved recipes')
+  return res.json()
+}
+
+export async function deleteSavedRecipe(recipeId) {
+  const res = await fetch(`/api/saved-recipes/${recipeId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  if (!res.ok) throw new Error('Failed to delete recipe')
+  return res.json()
+}
+
 export async function getGroceryList(planId) {
   const res = await fetch(`/api/plans/${planId}/grocery-list`, {
     credentials: 'include',

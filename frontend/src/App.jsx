@@ -3,6 +3,7 @@ import { getCurrentUser, logout } from './api'
 import AuthPage from './components/AuthPage'
 import Chat from './components/Chat'
 import ProfilePage from './components/ProfilePage'
+import SavedItemsPage from './components/SavedItemsPage'
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -54,6 +55,14 @@ export default function App() {
               Chat
             </button>
             <button
+              onClick={() => setView('saved')}
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                view === 'saved' ? 'bg-white text-brand shadow-sm' : 'text-white/80 hover:text-white'
+              }`}
+            >
+              Saved
+            </button>
+            <button
               onClick={() => setView('profile')}
               className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
                 view === 'profile' ? 'bg-white text-brand shadow-sm' : 'text-white/80 hover:text-white'
@@ -72,7 +81,9 @@ export default function App() {
         </div>
       </header>
 
-      {view === 'chat' ? <Chat user={user} /> : <ProfilePage />}
+      {view === 'chat' && <Chat user={user} />}
+      {view === 'saved' && <SavedItemsPage />}
+      {view === 'profile' && <ProfilePage />}
     </div>
   )
 }

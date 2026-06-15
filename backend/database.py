@@ -203,6 +203,14 @@ def setup_tables():
                 )
             """)
             cur.execute("""
+                CREATE TABLE IF NOT EXISTS saved_recipes (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    content JSONB NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS ingredient_normalizations (
                     raw_name VARCHAR(255) PRIMARY KEY,
                     canonical_name VARCHAR(255) NOT NULL,

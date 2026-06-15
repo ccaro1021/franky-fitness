@@ -101,12 +101,12 @@ function SwapPanel({ meal, onSelect, onClose }) {
   )
 }
 
-export default function MealPlanCard({ plan }) {
+export default function MealPlanCard({ plan, savedPlanId = null, initiallySaved = false }) {
   const [meals, setMeals] = useState(plan.meals)
-  const [saved, setSaved] = useState(false)
+  const [saved, setSaved] = useState(initiallySaved)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-  const [planId, setPlanId] = useState(null)
+  const [planId, setPlanId] = useState(savedPlanId)
   const [groceryList, setGroceryList] = useState(null)
   const [loadingGroceryList, setLoadingGroceryList] = useState(false)
   const [swapOpenKey, setSwapOpenKey] = useState(null)
