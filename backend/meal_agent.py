@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from spoonacular import get_recipe, search_recipes
 
 from backend.transcripts import build_transcript
+from backend.users import patch_profile
 
 load_dotenv()
 
@@ -115,6 +116,48 @@ TOOLS = [
             "required": ["meals"],
         },
     },
+    {
+        "name": "update_profile",
+        "description": (
+            "Save durable personal info the user shares in chat (height, weight, target "
+            "weight, dietary restrictions, fitness goals, general notes like injuries) "
+            "to their profile, so future plans use it automatically. Only call this for "
+            "info meant to persist — not for one-off, single-request preferences (e.g. "
+            "'swap Tuesday's dinner for something else'). Only include the fields the "
+            "user actually stated; omit everything else."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "height_inches": {
+                    "type": "number",
+                    "description": "Total height in inches (e.g. 5'10\" = 70). Overwrites any existing value.",
+                },
+                "weight_lbs": {
+                    "type": "number",
+                    "description": "Current weight in pounds. Overwrites any existing value.",
+                },
+                "target_weight_lbs": {
+                    "type": "number",
+                    "description": "Target/goal weight in pounds. Overwrites any existing value.",
+                },
+                "add_dietary_restrictions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "New dietary restrictions to add (e.g. ['shellfish allergy']). Merged with existing, case-insensitive de-duped.",
+                },
+                "add_fitness_goals": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "New fitness goals to add (e.g. ['train for a 10k']). Merged with existing, case-insensitive de-duped.",
+                },
+                "append_notes": {
+                    "type": "string",
+                    "description": "A general note to remember (e.g. 'Has a bad knee, go easy on lunges'). Appended to existing notes on a new line.",
+                },
+            },
+        },
+    },
 ]
 
 
@@ -167,6 +210,13 @@ def _format_stats_for_prompt(profile: dict) -> str:
     return "\n".join(lines) + "\n" if lines else ""
 
 
+def _profile_incomplete(profile: dict) -> bool:
+    """True if fitness_goals is empty, or both height_inches and weight_lbs are unset."""
+    no_goals = not profile.get("fitness_goals")
+    no_stats = not profile.get("height_inches") and not profile.get("weight_lbs")
+    return no_goals or no_stats
+
+
 def _build_system_prompt(
     profile: dict, current_plan: dict | None = None, preference_summary: dict | None = None
 ) -> str:
@@ -192,6 +242,8 @@ When building a weekly meal plan:
 
 If you need clarifying information (calorie target, foods to avoid, cooking time available), ask before generating the plan. One focused question at a time.
 
+If {profile['name']} states durable personal info meant to persist — height, weight, target weight, a new dietary restriction, a new fitness goal, or a general note like an injury — call update_profile to save it, and confirm in plain language what you saved (don't restate the whole profile). Don't call it for one-off, single-request preferences (e.g. "swap Tuesday's dinner for something else").
+{"\nWhen you call finalize_meal_plan, also include one short sentence in your reply noting that sharing fitness goals and/or height/weight (via chat or the Profile page) would help tailor the plan further." if _profile_incomplete(profile) else ""}
 You are a coach, not a doctor. For medical concerns, recommend consulting a healthcare professional."""
 
     if current_plan:
@@ -213,7 +265,28 @@ When {profile['name']} asks how to make a meal, use get_recipe with that meal's 
     return prompt
 
 
-def _run_tool(name: str, inputs: dict) -> tuple[str, dict | None]:
+def _describe_profile_update(inputs: dict) -> str:
+    """Describe an update_profile call's inputs in plain language, for the tool_result."""
+    parts = []
+    if "height_inches" in inputs:
+        parts.append(f"height to {inputs['height_inches']} in")
+    if "weight_lbs" in inputs:
+        parts.append(f"weight to {inputs['weight_lbs']} lbs")
+    if "target_weight_lbs" in inputs:
+        parts.append(f"target weight to {inputs['target_weight_lbs']} lbs")
+    if inputs.get("add_dietary_restrictions"):
+        parts.append("added " + ", ".join(f"'{item}'" for item in inputs["add_dietary_restrictions"]) + " to dietary restrictions")
+    if inputs.get("add_fitness_goals"):
+        parts.append("added " + ", ".join(f"'{item}'" for item in inputs["add_fitness_goals"]) + " to fitness goals")
+    if inputs.get("append_notes"):
+        parts.append(f"added a note: '{inputs['append_notes']}'")
+
+    if not parts:
+        return "No profile fields provided."
+    return "Noted: " + "; ".join(parts) + "."
+
+
+def _run_tool(name: str, inputs: dict, user_id: int | None = None) -> tuple[str, dict | None]:
     """Returns (text_for_agent, structured_data_for_frontend)."""
     if name == "search_meals":
         filters = {}
@@ -280,6 +353,11 @@ def _run_tool(name: str, inputs: dict) -> tuple[str, dict | None]:
             meal["ingredients_fetched"] = False
         return "Meal plan finalized.", inputs
 
+    if name == "update_profile":
+        if user_id is not None:
+            patch_profile(user_id, **inputs)
+        return _describe_profile_update(inputs), None
+
     return f"Unknown tool: {name}", None
 
 
@@ -288,6 +366,7 @@ def run_meal_agent(
     profile: dict,
     current_plan: dict | None = None,
     preference_summary: dict | None = None,
+    user_id: int | None = None,
 ) -> dict:
     """
     Run the meal planning agent for one conversation turn.
@@ -297,6 +376,7 @@ def run_meal_agent(
         profile: User profile from profiles.py
         current_plan: Most recently saved meal plan for this person, injected as context
         preference_summary: Liked/disliked meals derived from past feedback, injected as context
+        user_id: Current user's id, for update_profile to persist against; None in the eval harness
 
     Returns:
         message, meal_plan, recipe, input_tokens, output_tokens, latency_ms
@@ -333,7 +413,7 @@ def run_meal_agent(
 
         tool_results = []
         for tool_use in tool_uses:
-            result_text, result_data = _run_tool(tool_use.name, tool_use.input)
+            result_text, result_data = _run_tool(tool_use.name, tool_use.input, user_id)
 
             if tool_use.name == "finalize_meal_plan":
                 meal_plan = result_data

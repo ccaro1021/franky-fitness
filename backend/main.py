@@ -333,6 +333,7 @@ def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
             current_meal_plan=current_meal_plan,
             current_workout_plan=current_workout_plan,
             preference_summary=preference_summary,
+            user_id=user["id"],
         )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))

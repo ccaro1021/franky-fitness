@@ -9,6 +9,7 @@ export default function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState('chat')
+  const [isNewSignup, setIsNewSignup] = useState(false)
 
   useEffect(() => {
     getCurrentUser()
@@ -16,9 +17,16 @@ export default function App() {
       .finally(() => setLoading(false))
   }, [])
 
+  function handleAuth(authedUser, { isNewSignup: newSignup } = {}) {
+    setUser(authedUser)
+    setIsNewSignup(!!newSignup)
+    setView(newSignup ? 'profile' : 'chat')
+  }
+
   async function handleLogout() {
     await logout()
     setUser(null)
+    setIsNewSignup(false)
     setView('chat')
   }
 
@@ -31,7 +39,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthPage onAuth={setUser} />
+    return <AuthPage onAuth={handleAuth} />
   }
 
   return (
@@ -81,9 +89,9 @@ export default function App() {
         </div>
       </header>
 
-      {view === 'chat' && <Chat user={user} />}
+      {view === 'chat' && <Chat user={user} isNewSignup={isNewSignup} />}
       {view === 'saved' && <SavedItemsPage />}
-      {view === 'profile' && <ProfilePage />}
+      {view === 'profile' && <ProfilePage showOnboardingBanner={isNewSignup} />}
     </div>
   )
 }

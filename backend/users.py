@@ -103,6 +103,58 @@ def update_profile(
     return get_profile(user_id)
 
 
+def patch_profile(user_id: int, **fields) -> dict:
+    """Partially update a user's profile: overwrite scalar fields if provided, merge/dedupe
+    list fields (add_dietary_restrictions/add_fitness_goals), and append append_notes on a
+    new line. Fields not present in `fields` are left untouched. Returns the refreshed profile."""
+    current = get_profile(user_id)
+
+    sets = []
+    params = []
+
+    for scalar_field in ("height_inches", "weight_lbs", "target_weight_lbs"):
+        if scalar_field in fields:
+            sets.append(f"{scalar_field} = %s")
+            params.append(fields[scalar_field])
+
+    for list_field, source_key in (
+        ("dietary_restrictions", "add_dietary_restrictions"),
+        ("fitness_goals", "add_fitness_goals"),
+    ):
+        if source_key in fields:
+            existing = current[list_field] or []
+            existing_lower = {item.lower() for item in existing}
+            merged = list(existing)
+            for item in fields[source_key]:
+                if item.lower() not in existing_lower:
+                    merged.append(item)
+                    existing_lower.add(item.lower())
+            sets.append(f"{list_field} = %s")
+            params.append(json.dumps(merged))
+
+    if "append_notes" in fields:
+        existing_notes = current.get("notes") or ""
+        new_notes = f"{existing_notes}\n{fields['append_notes']}" if existing_notes else fields["append_notes"]
+        sets.append("notes = %s")
+        params.append(new_notes)
+
+    if not sets:
+        return current
+
+    sets.append("updated_at = NOW()")
+    params.append(user_id)
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE profiles SET {', '.join(sets)} WHERE user_id = %s",
+                params,
+            )
+        conn.commit()
+
+    return get_profile(user_id)
+
+
 def build_profile_context(user_id: int) -> dict:
     """Build the profile dict shape expected by the agents' system prompts."""
     with get_connection() as conn:

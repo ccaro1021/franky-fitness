@@ -41,11 +41,15 @@ function Message({ msg }) {
   )
 }
 
-export default function Chat({ user }) {
+export default function Chat({ user, isNewSignup = false }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: `Hi ${user.name}! I'm Franky, your nutrition and training coach. What can I help you with this week? I can build a meal plan, suggest recipes, generate a grocery list, or put together a workout plan.`,
+      content: `Hi ${user.name}! I'm Franky, your nutrition and training coach. What can I help you with this week? I can build a meal plan, suggest recipes, generate a grocery list, or put together a workout plan.${
+        isNewSignup
+          ? " By the way — the more you share about your stats, goals, and dietary restrictions (here in chat or on your Profile page), the better I can tailor your plans."
+          : ''
+      }`,
     },
   ])
   const [input, setInput] = useState('')

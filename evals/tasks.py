@@ -6,6 +6,7 @@ clarify_before_plan is the negative case.
 """
 
 from evals.graders import (
+    called_tool_with,
     emitted_no_plan,
     equipment_subset,
     every_meal_min_protein,
@@ -139,6 +140,50 @@ TASKS = [
             ),
         ],
         "source": "balanced/negative",
+    },
+    {
+        "id": "profile_update_from_chat",
+        "description": "User states height/weight and a new dietary restriction while asking for a meal plan",
+        "inputs": _user(
+            "I'm 5'10\" and 190 lbs, and I just found out I'm allergic to shellfish — "
+            "can you build me a weekly meal plan, around 2200 calories a day?"
+        ),
+        "profile": DEFAULT_PROFILE,
+        "current_meal_plan": None,
+        "current_workout_plan": None,
+        "success_criteria": "Routes to meal; calls update_profile with height_inches=70, "
+        "weight_lbs=190, and add_dietary_restrictions including 'shellfish allergy'.",
+        "graders": [
+            routed_to("meal"),
+            called_tool_with(
+                "update_profile",
+                {"height_inches": 70, "weight_lbs": 190, "add_dietary_restrictions": ["shellfish allergy"]},
+            ),
+        ],
+        "source": "Slice 13 — update_profile tool use",
+    },
+    {
+        "id": "profile_reminder_when_empty",
+        "description": "Empty-profile user requests a meal plan; reply should mention profile completeness",
+        "inputs": _user(
+            "Build me a weekly meal plan for general healthy eating, around 2200 calories "
+            "a day. No major dietary restrictions, no allergies, and no other constraints — "
+            "please go ahead and build the full plan now rather than asking me anything else."
+        ),
+        "profile": {**DEFAULT_PROFILE, "fitness_goals": [], "height_inches": None, "weight_lbs": None},
+        "current_meal_plan": None,
+        "current_workout_plan": None,
+        "success_criteria": "Routes to meal; the final reply mentions that providing "
+        "fitness goals and/or height/weight (via chat or Profile) would help tailor the plan.",
+        "graders": [
+            routed_to("meal"),
+            judge(
+                "The agent's reply mentions, in addition to presenting the plan, that "
+                "providing fitness goals and/or height/weight (via chat or the Profile "
+                "page) would help it tailor the plan further."
+            ),
+        ],
+        "source": "Slice 13 — pre-finalize profile-completeness reminder",
     },
     {
         "id": "no_invented_macros",

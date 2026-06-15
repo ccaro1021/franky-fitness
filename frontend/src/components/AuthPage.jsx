@@ -14,10 +14,13 @@ export default function AuthPage({ onAuth }) {
     setError(null)
     setSubmitting(true)
     try {
-      const user = mode === 'login'
-        ? await login(email, password)
-        : await signup(email, password, name)
-      onAuth(user)
+      if (mode === 'login') {
+        const user = await login(email, password)
+        onAuth(user, { isNewSignup: false })
+      } else {
+        const user = await signup(email, password, name)
+        onAuth(user, { isNewSignup: true })
+      }
     } catch (err) {
       setError(err.message)
     } finally {

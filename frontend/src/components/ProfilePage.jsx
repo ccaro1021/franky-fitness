@@ -35,7 +35,8 @@ function formatHeight(totalInches) {
 const inputClass =
   'mt-1 w-full border border-border bg-bg rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:bg-surface transition-colors'
 
-export default function ProfilePage() {
+export default function ProfilePage({ showOnboardingBanner = false }) {
+  const [bannerDismissed, setBannerDismissed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -123,6 +124,24 @@ export default function ProfilePage() {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
       <div className="max-w-md mx-auto space-y-6">
+        {showOnboardingBanner && !bannerDismissed && (
+          <div className="bg-brand-light border border-brand/20 rounded-2xl px-4 py-3 flex items-start gap-3">
+            <p className="text-sm text-ink flex-1">
+              Welcome to Franky! Filling in your stats, goals, and dietary restrictions
+              below helps Franky build meal and workout plans tailored to you — or you
+              can skip this and share that info in chat instead.
+            </p>
+            <button
+              type="button"
+              onClick={() => setBannerDismissed(true)}
+              title="Dismiss"
+              className="text-ink-soft hover:text-ink leading-none shrink-0"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Stats summary card */}
         <div className="bg-surface rounded-2xl border border-border shadow-sm p-5">
           <h2 className="font-display font-bold text-lg text-ink mb-4">Your Stats</h2>

@@ -208,6 +208,44 @@ def macros_trace_to_search():
     return grader
 
 
+def called_tool_with(tool_name: str, expected_fields: dict):
+    """Pass if a tool_use step named `tool_name` was called with input containing
+    every key/value in `expected_fields` (list values compared case-insensitively
+    as sets of strings)."""
+    def grader(transcript: dict) -> dict:
+        calls = [step["input"] for step in transcript.get("steps", []) if step.get("name") == tool_name]
+        if not calls:
+            return {
+                "assertion": f"called_tool_with({tool_name!r}, {expected_fields!r})",
+                "passed": False,
+                "reasoning": f"no {tool_name} tool call found",
+            }
+
+        for call in calls:
+            mismatches = []
+            for key, expected_value in expected_fields.items():
+                actual_value = call.get(key)
+                if isinstance(expected_value, list):
+                    if {str(v).lower() for v in (actual_value or [])} != {str(v).lower() for v in expected_value}:
+                        mismatches.append((key, actual_value, expected_value))
+                elif actual_value != expected_value:
+                    mismatches.append((key, actual_value, expected_value))
+
+            if not mismatches:
+                return {
+                    "assertion": f"called_tool_with({tool_name!r}, {expected_fields!r})",
+                    "passed": True,
+                    "reasoning": f"matched call: {call}",
+                }
+
+        return {
+            "assertion": f"called_tool_with({tool_name!r}, {expected_fields!r})",
+            "passed": False,
+            "reasoning": f"no matching call; calls were: {calls}",
+        }
+    return grader
+
+
 def judge(rubric: str):
     """LLM-as-judge: pass if Claude agrees the agent's output satisfies the rubric."""
     def grader(transcript: dict) -> dict:
