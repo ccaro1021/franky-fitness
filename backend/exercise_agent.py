@@ -12,6 +12,7 @@ load_dotenv()
 client = Anthropic()
 
 MODEL = "claude-sonnet-4-6"
+MAX_TURNS = 10  # cap on tool-use round-trips before bailing out with a fallback message
 
 _DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -19,9 +20,15 @@ TOOLS = [
     {
         "name": "search_exercises",
         "description": (
-            "Search ExerciseDB for real exercises. Use this to find exercises for a workout day "
-            "before including them in a plan. Returns exercise names, IDs, target muscles, "
-            "equipment, and secondary muscles worked."
+            "Search ExerciseDB for real exercises. Call this once per exercise slot you "
+            "need to fill before finalizing a plan. Combine filters to narrow results: "
+            "equipment constrains by available gear (e.g. equipment='dumbbell' for a "
+            "dumbbell-only program), body_part/target_muscle narrow by muscle group "
+            "(e.g. body_part='chest', target_muscle='triceps'), and name searches by "
+            "exercise name (e.g. name='bench press') when the user requests a specific "
+            "movement. Returns exercise names, IDs, target muscles, equipment, and "
+            "secondary muscles — use the returned id and name directly in "
+            "finalize_workout_plan, never invent your own."
         ),
         "input_schema": {
             "type": "object",
@@ -56,9 +63,12 @@ TOOLS = [
     {
         "name": "finalize_workout_plan",
         "description": (
-            "Call this once you have assembled the complete workout plan for the week. "
-            "Include every training day before calling this. Use exercise IDs and names "
-            "from your search_exercises results, not invented exercises."
+            "Call this exactly once you have assembled the complete workout plan for "
+            "the week — one entry per training day, plus rest_days for the rest. "
+            "exercise_id and exercise_name must come from a search_exercises result "
+            "for that exercise; never invent exercises or IDs. If the user specified "
+            "available equipment, every exercise's equipment (visible in "
+            "search_exercises results) must be within that constraint."
         ),
         "input_schema": {
             "type": "object",
@@ -168,9 +178,10 @@ def _build_system_prompt(
 When building a workout plan:
 1. Ask for available training days per week, equipment access, and any injuries or limitations — one focused question at a time.
 2. Choose an appropriate training split (e.g. Upper/Lower, Push/Pull/Legs, Full Body) based on available days and goals.
-3. Use search_exercises to find real exercises for each session — never invent exercise names or IDs.
-4. Assign sets, reps, and rest periods appropriate to the goal (fat loss = higher reps/shorter rest, muscle building = moderate reps/longer rest).
-5. Once the full plan is assembled, call finalize_workout_plan with structured data, then summarize it conversationally.
+3. Before each search_exercises call, state in one short sentence what you're about to look for and why (e.g. "Searching for a dumbbell chest exercise for Monday's push day").
+4. Use search_exercises to find real exercises for each session — never invent exercise names or IDs.
+5. Assign sets, reps, and rest periods appropriate to the goal (fat loss = higher reps/shorter rest, muscle building = moderate reps/longer rest).
+6. Once the full plan is assembled, call finalize_workout_plan with structured data, then summarize it conversationally.
 
 You are a coach, not a doctor. For injuries or medical concerns, recommend consulting a healthcare professional and avoid exercises that could aggravate a stated limitation."""
 
@@ -265,6 +276,9 @@ def run_exercise_agent(
     input_tokens += response.usage.input_tokens
     output_tokens += response.usage.output_tokens
 
+    turns = 1
+    hit_max_turns = False
+
     while response.stop_reason == "tool_use":
         tool_uses = [b for b in response.content if b.type == "tool_use"]
         history.append({"role": "assistant", "content": response.content})
@@ -284,6 +298,10 @@ def run_exercise_agent(
 
         history.append({"role": "user", "content": tool_results})
 
+        if turns >= MAX_TURNS:
+            hit_max_turns = True
+            break
+
         try:
             response = client.messages.create(
                 model=MODEL,
@@ -297,11 +315,19 @@ def run_exercise_agent(
 
         input_tokens += response.usage.input_tokens
         output_tokens += response.usage.output_tokens
+        turns += 1
 
-    message = next(b.text for b in response.content if hasattr(b, "text"))
+    if hit_max_turns:
+        message = (
+            "I'm having trouble wrapping this up after a lot of back-and-forth. "
+            "Could you try rephrasing your request or breaking it into smaller asks?"
+        )
+        final_history = history
+    else:
+        message = next(b.text for b in response.content if hasattr(b, "text"))
+        final_history = history + [{"role": "assistant", "content": response.content}]
+
     latency_ms = round((time.time() - start) * 1000)
-
-    final_history = history + [{"role": "assistant", "content": response.content}]
 
     transcript = build_transcript(
         agent_type="exercise_agent",
@@ -310,7 +336,7 @@ def run_exercise_agent(
         inputs=messages,
         history=final_history,
         output=message,
-        outcome={"workout_plan": workout_plan},
+        outcome={"workout_plan": workout_plan, "hit_max_turns": hit_max_turns},
         usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
         latency_ms=latency_ms,
     )

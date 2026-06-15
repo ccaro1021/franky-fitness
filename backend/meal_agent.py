@@ -10,6 +10,7 @@ load_dotenv()
 client = Anthropic()
 
 MODEL = "claude-sonnet-4-6"
+MAX_TURNS = 10  # cap on tool-use round-trips before bailing out with a fallback message
 
 _DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 _MEAL_ORDER = ['breakfast', 'lunch', 'dinner', 'snack']
@@ -18,9 +19,13 @@ TOOLS = [
     {
         "name": "search_meals",
         "description": (
-            "Search for real recipes matching nutritional goals and preferences. "
-            "Use this to find specific meals before including them in a plan. "
-            "Returns meal names, calories, and macros per serving."
+            "Search for real recipes matching nutritional goals and preferences, e.g. "
+            "query='high protein breakfast', max_calories=500, min_protein=30. "
+            "Call this once per meal slot while building a plan. Returns meal names, "
+            "calories, and macros per serving — use these values directly in "
+            "finalize_meal_plan rather than estimating. "
+            "Do not use get_recipe during plan-building; finalize_meal_plan fetches "
+            "full ingredients automatically from spoonacular_id."
         ),
         "input_schema": {
             "type": "object",
@@ -49,8 +54,11 @@ TOOLS = [
         "name": "get_recipe",
         "description": (
             "Fetch the full recipe for a meal — ingredients and step-by-step instructions. "
-            "Use this when the user asks how to make a specific meal. "
-            "Prefer passing spoonacular_id from the saved plan; fall back to meal_name if needed."
+            "Use this ONLY when the user explicitly asks how to make/cook a specific meal "
+            "(e.g. 'how do I make Monday's dinner?'), never while building a plan. "
+            "Prefer passing spoonacular_id from the saved plan; fall back to meal_name "
+            "only if no ID is available, e.g. a meal mentioned in conversation that "
+            "isn't on the saved plan."
         ),
         "input_schema": {
             "type": "object",
@@ -69,9 +77,12 @@ TOOLS = [
     {
         "name": "finalize_meal_plan",
         "description": (
-            "Call this once you have assembled the complete weekly meal plan. "
-            "Include every meal for every day before calling this. "
-            "Use calorie and macro values from your search_meals results, not estimates."
+            "Call this exactly once, after you have assembled the complete weekly meal "
+            "plan — all 7 days, each with breakfast, lunch, and dinner (snacks "
+            "optional). Every meal's calories/macros must come from that meal's "
+            "search_meals result, never estimated or rounded from memory. Do not "
+            "include an 'ingredients' field — ingredients are fetched automatically "
+            "from spoonacular_id."
         ),
         "input_schema": {
             "type": "object",
@@ -171,12 +182,13 @@ def _build_system_prompt(
 {f"- Notes: {notes}" if notes else ""}
 {_format_stats_for_prompt(profile)}
 When building a weekly meal plan:
-1. Use search_meals to find real recipes — never invent calorie or macro numbers.
-2. Search for breakfast, lunch, and dinner options separately so you have real data for each.
-3. Plan all 7 days before calling finalize_meal_plan.
-4. For fat loss + muscle building, target high protein (at least 30g per meal), moderate carbs, and controlled calories.
-5. Avoid anything that violates the person's dietary restrictions.
-6. Once the full plan is assembled, call finalize_meal_plan with structured data, then summarize it conversationally.
+1. Before each search_meals call, state in one short sentence what you're about to look for and why (e.g. "Searching for a high-protein breakfast for Monday").
+2. Use search_meals to find real recipes — never invent calorie or macro numbers.
+3. Search for breakfast, lunch, and dinner options separately so you have real data for each.
+4. Plan all 7 days before calling finalize_meal_plan.
+5. For fat loss + muscle building, target high protein (at least 30g per meal), moderate carbs, and controlled calories.
+6. Avoid anything that violates the person's dietary restrictions.
+7. Once the full plan is assembled, call finalize_meal_plan with structured data, then summarize it conversationally.
 
 If you need clarifying information (calorie target, foods to avoid, cooking time available), ask before generating the plan. One focused question at a time.
 
@@ -318,6 +330,9 @@ def run_meal_agent(
     input_tokens += response.usage.input_tokens
     output_tokens += response.usage.output_tokens
 
+    turns = 1
+    hit_max_turns = False
+
     while response.stop_reason == "tool_use":
         tool_uses = [b for b in response.content if b.type == "tool_use"]
         history.append({"role": "assistant", "content": response.content})
@@ -340,6 +355,10 @@ def run_meal_agent(
 
         history.append({"role": "user", "content": tool_results})
 
+        if turns >= MAX_TURNS:
+            hit_max_turns = True
+            break
+
         try:
             response = client.messages.create(
                 model=MODEL,
@@ -353,11 +372,19 @@ def run_meal_agent(
 
         input_tokens += response.usage.input_tokens
         output_tokens += response.usage.output_tokens
+        turns += 1
 
-    message = next(b.text for b in response.content if hasattr(b, "text"))
+    if hit_max_turns:
+        message = (
+            "I'm having trouble wrapping this up after a lot of back-and-forth. "
+            "Could you try rephrasing your request or breaking it into smaller asks?"
+        )
+        final_history = history
+    else:
+        message = next(b.text for b in response.content if hasattr(b, "text"))
+        final_history = history + [{"role": "assistant", "content": response.content}]
+
     latency_ms = round((time.time() - start) * 1000)
-
-    final_history = history + [{"role": "assistant", "content": response.content}]
 
     transcript = build_transcript(
         agent_type="meal_agent",
@@ -366,7 +393,7 @@ def run_meal_agent(
         inputs=messages,
         history=final_history,
         output=message,
-        outcome={"meal_plan": meal_plan, "recipe": recipe},
+        outcome={"meal_plan": meal_plan, "recipe": recipe, "hit_max_turns": hit_max_turns},
         usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
         latency_ms=latency_ms,
     )
