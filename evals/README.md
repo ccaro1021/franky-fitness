@@ -16,6 +16,14 @@ Each trial calls `run_coordinator()` directly — no Postgres writes, no UI
 needed. **This makes real Anthropic + Spoonacular/ExerciseDB API calls**, so
 keep `--trials` small while iterating.
 
+For fast, deterministic checks that hit no APIs (e.g. the grocery alias
+table), run the stdlib unit tests instead:
+
+```bash
+python -m unittest discover tests      # all unit tests
+python -m unittest tests.test_grocery  # just the grocery alias table
+```
+
 The harness prints a `pass@k` / `pass^k` table per task and overall, and
 writes every trial's Transcript to `evals/results/<timestamp>/<task_id>-trial<n>.jsonl`
 (gitignored). These are the *same* Transcript format as live `transcripts/`
