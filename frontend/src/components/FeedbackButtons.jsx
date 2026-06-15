@@ -33,8 +33,8 @@ export default function FeedbackButtons({ planId, itemType, itemName }) {
         type="button"
         onClick={() => handleRate('positive')}
         title="I like this"
-        className={`text-sm leading-none px-1 py-0.5 rounded transition-colors ${
-          rating === 'positive' ? 'opacity-100' : 'opacity-40 hover:opacity-70'
+        className={`text-sm leading-none w-6 h-6 flex items-center justify-center rounded-full transition-colors ${
+          rating === 'positive' ? 'bg-success-light opacity-100' : 'opacity-40 hover:opacity-70'
         }`}
       >
         👍
@@ -43,8 +43,8 @@ export default function FeedbackButtons({ planId, itemType, itemName }) {
         type="button"
         onClick={() => handleRate('negative')}
         title="Not for me"
-        className={`text-sm leading-none px-1 py-0.5 rounded transition-colors ${
-          rating === 'negative' ? 'opacity-100' : 'opacity-40 hover:opacity-70'
+        className={`text-sm leading-none w-6 h-6 flex items-center justify-center rounded-full transition-colors ${
+          rating === 'negative' ? 'bg-danger-light opacity-100' : 'opacity-40 hover:opacity-70'
         }`}
       >
         👎
@@ -60,12 +60,12 @@ export default function FeedbackButtons({ planId, itemType, itemName }) {
               onChange={e => setNote(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSendNote()}
               placeholder="Why? (optional)"
-              className="text-xs border border-gray-200 rounded px-1.5 py-0.5 w-28 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="text-xs border border-border rounded-lg px-1.5 py-0.5 w-28 focus:outline-none focus:ring-1 focus:ring-brand"
             />
             <button
               type="button"
               onClick={handleSendNote}
-              className="text-xs text-emerald-600 hover:text-emerald-700"
+              className="text-xs text-brand hover:text-brand-dark font-semibold"
             >
               Send
             </button>
@@ -74,13 +74,13 @@ export default function FeedbackButtons({ planId, itemType, itemName }) {
           <button
             type="button"
             onClick={() => setNoteOpen(true)}
-            className="text-xs text-gray-400 hover:text-gray-600"
+            className="text-xs text-ink-soft hover:text-ink"
           >
             + note
           </button>
         )
       )}
-      {noteSent && <span className="text-xs text-gray-400">Thanks!</span>}
+      {noteSent && <span className="text-xs text-ink-soft">Thanks!</span>}
     </div>
   )
 }

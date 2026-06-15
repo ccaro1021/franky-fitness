@@ -1,14 +1,61 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+@theme {
+  --font-display: "Sora", "Helvetica Neue", sans-serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+
+  /* Core brand */
+  --color-brand: #0d6dfd;
+  --color-brand-dark: #0a4fc4;
+  --color-brand-light: #eaf2ff;
+
+  /* Surfaces */
+  --color-bg: #f3f6fb;
+  --color-surface: #ffffff;
+  --color-ink: #16202e;
+  --color-ink-soft: #6e7c8e;
+  --color-border: #e4e9f1;
+
+  /* Status */
+  --color-success: #1fb27a;
+  --color-success-light: #e6f8f0;
+  --color-warning: #ff9d2e;
+  --color-warning-light: #fff3e3;
+  --color-danger: #f1564b;
+  --color-danger-light: #fdebe9;
+
+  /* Macro accents */
+  --color-protein: #ef6a5a;
+  --color-protein-light: #fdeae7;
+  --color-carbs: #2fb6e0;
+  --color-carbs-light: #e7f7fd;
+  --color-fat: #f6b94f;
+  --color-fat-light: #fef3e0;
+}
+
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #f9fafb;
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-ink);
 }
 
 #root {
   height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-display);
+}
+
+::selection {
+  background: var(--color-brand-light);
+  color: var(--color-brand-dark);
+}
+
+* {
+  scrollbar-color: var(--color-brand) transparent;
 }

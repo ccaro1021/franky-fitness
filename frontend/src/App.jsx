@@ -22,7 +22,11 @@ export default function App() {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center h-screen bg-gray-50 text-sm text-gray-400">Loading…</div>
+    return (
+      <div className="flex items-center justify-center h-screen bg-bg text-sm text-ink-soft">
+        Loading…
+      </div>
+    )
   }
 
   if (!user) {
@@ -30,38 +34,38 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold text-sm">
+    <div className="flex flex-col h-screen bg-bg">
+      <header className="bg-brand px-4 py-3 flex items-center justify-between shrink-0 shadow-sm">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center text-brand font-display font-extrabold text-base shadow-sm">
             F
           </div>
-          <span className="font-semibold text-gray-800">Franky Fitness</span>
+          <span className="font-display font-bold text-white text-lg tracking-tight">Franky Fitness</span>
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+          <div className="flex items-center gap-1 bg-white/15 rounded-full p-1">
             <button
               onClick={() => setView('chat')}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                view === 'chat' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                view === 'chat' ? 'bg-white text-brand shadow-sm' : 'text-white/80 hover:text-white'
               }`}
             >
               Chat
             </button>
             <button
               onClick={() => setView('profile')}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                view === 'profile' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                view === 'profile' ? 'bg-white text-brand shadow-sm' : 'text-white/80 hover:text-white'
               }`}
             >
               Profile
             </button>
           </div>
-          <span className="text-sm text-gray-600">{user.name}</span>
+          <span className="text-sm text-white font-medium hidden sm:inline">{user.name}</span>
           <button
             onClick={handleLogout}
-            className="text-sm text-gray-400 hover:text-gray-600"
+            className="text-sm text-white/70 hover:text-white transition-colors"
           >
             Log out
           </button>

@@ -32,7 +32,7 @@ function SwapPanel({ meal, onSelect, onClose }) {
   }, [mealType, mealCalories])
 
   return (
-    <tr className="bg-gray-50">
+    <tr className="bg-brand-light">
       <td colSpan={8} className="px-4 py-3">
         <div className="flex gap-2 mb-2">
           <input
@@ -41,27 +41,27 @@ function SwapPanel({ meal, onSelect, onClose }) {
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && search(query)}
             placeholder={`Refine search (default: "${meal.meal_type}")`}
-            className="flex-1 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className="flex-1 text-xs border border-border bg-surface rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand"
           />
           <button
             onClick={() => search(query)}
             disabled={loading}
-            className="text-xs px-2 py-1 rounded bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-50"
+            className="text-xs px-2 py-1 rounded-lg bg-surface text-ink-soft border border-border hover:bg-bg disabled:opacity-50"
           >
             Search
           </button>
           <button
             onClick={onClose}
-            className="text-xs px-2 py-1 rounded text-gray-400 hover:text-gray-600"
+            className="text-xs px-2 py-1 rounded-lg text-ink-soft hover:text-ink"
           >
             Cancel
           </button>
         </div>
 
-        {loading && <p className="text-xs text-gray-400">Searching…</p>}
+        {loading && <p className="text-xs text-ink-soft">Searching…</p>}
 
         {error && (
-          <p className="text-xs text-red-600">
+          <p className="text-xs text-danger">
             {error}{' '}
             <button onClick={() => search(query)} className="underline">
               Retry
@@ -71,23 +71,23 @@ function SwapPanel({ meal, onSelect, onClose }) {
 
         {!loading && !error && candidates && (
           candidates.length === 0 ? (
-            <p className="text-xs text-gray-400">No alternatives found.</p>
+            <p className="text-xs text-ink-soft">No alternatives found.</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {candidates.map((c, i) => (
                 <div
                   key={c.spoonacular_id ?? i}
-                  className="border border-gray-200 rounded-lg px-3 py-2 bg-white flex items-center justify-between gap-2"
+                  className="border border-border rounded-xl px-3 py-2 bg-surface flex items-center justify-between gap-2"
                 >
                   <div>
-                    <p className="text-sm text-gray-800">{c.name}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-sm text-ink">{c.name}</p>
+                    <p className="text-xs text-ink-soft">
                       {c.calories_per_serving} cal · {c.protein_g}g P · {c.carbs_g}g C · {c.fat_g}g F
                     </p>
                   </div>
                   <button
                     onClick={() => onSelect(c)}
-                    className="text-xs px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 shrink-0"
+                    className="text-xs px-2 py-1 rounded-lg bg-brand text-white hover:bg-brand-dark shrink-0 font-semibold"
                   >
                     Use this
                   </button>
@@ -175,25 +175,25 @@ export default function MealPlanCard({ plan }) {
   }
 
   return (
-    <div className="mt-3 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
-      <div className="flex items-center justify-between px-4 py-3 bg-emerald-50 border-b border-gray-200">
-        <span className="font-semibold text-emerald-800 text-sm">Weekly Meal Plan</span>
+    <div className="mt-3 border border-border rounded-2xl overflow-hidden bg-surface shadow-sm">
+      <div className="flex items-center justify-between px-4 py-3 bg-brand">
+        <span className="font-display font-bold text-white text-sm">Weekly Meal Plan</span>
         {!saved ? (
           <button
             onClick={handleSave}
             disabled={saving || meals.length === 0}
-            className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+            className="text-xs px-3 py-1.5 rounded-full bg-white text-brand font-semibold hover:bg-brand-light disabled:opacity-50 transition-colors shadow-sm"
           >
             {saving ? 'Saving…' : 'Save Plan'}
           </button>
         ) : (
           <div className="flex items-center gap-3">
-            <span className="text-xs text-emerald-700 font-medium">Saved</span>
+            <span className="text-xs text-white font-semibold bg-white/20 rounded-full px-2.5 py-1">Saved</span>
             {!groceryList && (
               <button
                 onClick={handleGroceryList}
                 disabled={loadingGroceryList}
-                className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                className="text-xs px-3 py-1.5 rounded-full bg-white text-brand font-semibold hover:bg-brand-light disabled:opacity-50 transition-colors shadow-sm"
               >
                 {loadingGroceryList ? 'Loading…' : 'Grocery List'}
               </button>
@@ -202,14 +202,14 @@ export default function MealPlanCard({ plan }) {
         )}
       </div>
 
-      {error && <p className="text-xs text-red-600 px-4 py-2">{error}</p>}
+      {error && <p className="text-xs text-danger px-4 py-2">{error}</p>}
 
       {!saved && meals.length === 0 && (
-        <p className="text-xs text-gray-400 px-4 py-2">Add at least one meal to save this plan.</p>
+        <p className="text-xs text-ink-soft px-4 py-2">Add at least one meal to save this plan.</p>
       )}
 
       {!saved && (
-        <p className="text-xs text-gray-400 px-4 pt-2">
+        <p className="text-xs text-ink-soft px-4 pt-2">
           Swap or remove any meal or day below before saving.
         </p>
       )}
@@ -217,18 +217,18 @@ export default function MealPlanCard({ plan }) {
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
-              <th className="px-4 py-2 font-medium">Day</th>
-              <th className="px-4 py-2 font-medium">Meal</th>
-              <th className="px-4 py-2 font-medium">Name</th>
-              <th className="px-4 py-2 font-medium text-right">Cal</th>
-              <th className="px-4 py-2 font-medium text-right">Protein</th>
-              <th className="px-4 py-2 font-medium text-right">Carbs</th>
-              <th className="px-4 py-2 font-medium text-right">Fat</th>
-              <th className="px-4 py-2 font-medium text-right">{saved ? 'Feedback' : 'Actions'}</th>
+            <tr className="bg-bg text-left text-xs text-ink-soft uppercase tracking-wide">
+              <th className="px-4 py-2 font-semibold">Day</th>
+              <th className="px-4 py-2 font-semibold">Meal</th>
+              <th className="px-4 py-2 font-semibold">Name</th>
+              <th className="px-4 py-2 font-semibold text-right">Cal</th>
+              <th className="px-4 py-2 font-semibold text-right">Protein</th>
+              <th className="px-4 py-2 font-semibold text-right">Carbs</th>
+              <th className="px-4 py-2 font-semibold text-right">Fat</th>
+              <th className="px-4 py-2 font-semibold text-right">{saved ? 'Feedback' : 'Actions'}</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-border">
             {Object.entries(byDay).map(([day, dayMeals]) => {
               const totals = dayMeals.reduce(
                 (acc, m) => ({
@@ -246,8 +246,8 @@ export default function MealPlanCard({ plan }) {
                     const key = `${day}-${meal.meal_type}`
                     return (
                       <Fragment key={key}>
-                        <tr className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-2.5 text-gray-600 font-medium">
+                        <tr className="hover:bg-bg transition-colors">
+                          <td className="px-4 py-2.5 text-ink font-semibold">
                             {i === 0 ? (
                               <span className="inline-flex items-center gap-1.5">
                                 {day}
@@ -255,7 +255,7 @@ export default function MealPlanCard({ plan }) {
                                   <button
                                     onClick={() => handleRemoveDay(day)}
                                     title="Remove this day"
-                                    className="text-gray-300 hover:text-red-500 leading-none"
+                                    className="text-ink-soft/40 hover:text-danger leading-none"
                                   >
                                     ×
                                   </button>
@@ -264,15 +264,21 @@ export default function MealPlanCard({ plan }) {
                             ) : ''}
                           </td>
                           <td className="px-4 py-2.5">
-                            <span className="capitalize text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                            <span className="capitalize text-xs px-2 py-0.5 rounded-full bg-brand-light text-brand-dark font-medium">
                               {meal.meal_type}
                             </span>
                           </td>
-                          <td className="px-4 py-2.5 text-gray-800">{meal.name}</td>
-                          <td className="px-4 py-2.5 text-right text-gray-600">{meal.calories}</td>
-                          <td className="px-4 py-2.5 text-right text-blue-600 font-medium">{meal.protein_g}g</td>
-                          <td className="px-4 py-2.5 text-right text-amber-600">{meal.carbs_g}g</td>
-                          <td className="px-4 py-2.5 text-right text-gray-500">{meal.fat_g}g</td>
+                          <td className="px-4 py-2.5 text-ink">{meal.name}</td>
+                          <td className="px-4 py-2.5 text-right text-ink-soft">{meal.calories}</td>
+                          <td className="px-4 py-2.5 text-right">
+                            <span className="text-protein font-semibold">{meal.protein_g}g</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <span className="text-carbs font-semibold">{meal.carbs_g}g</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <span className="text-fat font-semibold">{meal.fat_g}g</span>
+                          </td>
                           <td className="px-4 py-2.5 text-right">
                             {saved ? (
                               <FeedbackButtons
@@ -284,14 +290,14 @@ export default function MealPlanCard({ plan }) {
                               <span className="inline-flex items-center gap-2 text-xs">
                                 <button
                                   onClick={() => setSwapOpenKey(swapOpenKey === key ? null : key)}
-                                  className="text-emerald-600 hover:text-emerald-700"
+                                  className="text-brand hover:text-brand-dark font-semibold"
                                 >
                                   Swap
                                 </button>
                                 <button
                                   onClick={() => handleRemoveMeal(day, meal.meal_type)}
                                   title="Remove this meal"
-                                  className="text-gray-300 hover:text-red-500 leading-none"
+                                  className="text-ink-soft/40 hover:text-danger leading-none"
                                 >
                                   ×
                                 </button>
@@ -309,12 +315,12 @@ export default function MealPlanCard({ plan }) {
                       </Fragment>
                     )
                   })}
-                  <tr className="bg-gray-50 text-xs font-medium text-gray-500">
+                  <tr className="bg-bg text-xs font-semibold text-ink-soft">
                     <td className="px-4 py-1.5" colSpan={3}>Total</td>
                     <td className="px-4 py-1.5 text-right">{totals.calories}</td>
-                    <td className="px-4 py-1.5 text-right text-blue-600">{totals.protein_g}g</td>
-                    <td className="px-4 py-1.5 text-right text-amber-600">{totals.carbs_g}g</td>
-                    <td className="px-4 py-1.5 text-right">{totals.fat_g}g</td>
+                    <td className="px-4 py-1.5 text-right text-protein">{totals.protein_g}g</td>
+                    <td className="px-4 py-1.5 text-right text-carbs">{totals.carbs_g}g</td>
+                    <td className="px-4 py-1.5 text-right text-fat">{totals.fat_g}g</td>
                     <td className="px-4 py-1.5"></td>
                   </tr>
                 </Fragment>
@@ -325,8 +331,8 @@ export default function MealPlanCard({ plan }) {
       </div>
 
       {plan.notes && (
-        <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
-          <p className="text-xs text-gray-500 italic">{plan.notes}</p>
+        <div className="px-4 py-3 bg-bg border-t border-border">
+          <p className="text-xs text-ink-soft italic">{plan.notes}</p>
         </div>
       )}
 

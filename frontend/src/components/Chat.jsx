@@ -12,7 +12,7 @@ function Message({ msg }) {
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
       {!isUser && (
-        <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-white text-xs font-bold mr-2 shrink-0 mt-0.5">
+        <div className="w-8 h-8 rounded-xl bg-brand flex items-center justify-center text-white text-xs font-display font-bold mr-2 shrink-0 mt-0.5 shadow-sm">
           F
         </div>
       )}
@@ -20,8 +20,8 @@ function Message({ msg }) {
         <div
           className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
             isUser
-              ? 'bg-emerald-600 text-white rounded-br-sm whitespace-pre-wrap'
-              : 'bg-white border border-gray-200 text-gray-800 rounded-bl-sm shadow-sm overflow-x-auto'
+              ? 'bg-brand text-white rounded-br-md whitespace-pre-wrap shadow-sm'
+              : 'bg-surface border border-border text-ink rounded-bl-md shadow-sm overflow-x-auto'
           }`}
         >
           {isUser ? (
@@ -108,21 +108,21 @@ export default function Chat({ user }) {
 
         {loading && (
           <div className="flex justify-start mb-4">
-            <div className="w-8 h-8 rounded-full bg-emerald-600 flex items-center justify-center text-white text-xs font-bold mr-2 shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-brand flex items-center justify-center text-white text-xs font-display font-bold mr-2 shrink-0 shadow-sm">
               F
             </div>
-            <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
+            <div className="bg-surface border border-border rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
               <div className="flex gap-1 items-center">
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <span className="w-2 h-2 bg-brand/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-2 h-2 bg-brand/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-2 h-2 bg-brand/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
             </div>
           </div>
         )}
 
         {error && (
-          <div className="text-center text-sm text-red-500 mb-4 bg-red-50 rounded-lg px-4 py-2">
+          <div className="text-center text-sm text-danger mb-4 bg-danger-light rounded-lg px-4 py-2">
             {error}
           </div>
         )}
@@ -131,10 +131,10 @@ export default function Chat({ user }) {
       </div>
 
       {/* Input */}
-      <div className="border-t border-gray-200 bg-white px-4 py-3">
+      <div className="border-t border-border bg-surface px-4 py-3">
         <div className="flex gap-2 items-end">
           <textarea
-            className="flex-1 resize-none border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent max-h-32"
+            className="flex-1 resize-none border border-border bg-bg rounded-xl px-3.5 py-2.5 text-sm text-ink placeholder-ink-soft/60 focus:outline-none focus:ring-2 focus:ring-brand focus:bg-surface transition-colors max-h-32"
             rows={1}
             placeholder="Message Franky…"
             value={input}
@@ -145,12 +145,12 @@ export default function Chat({ user }) {
           <button
             onClick={handleSend}
             disabled={!input.trim() || loading}
-            className="px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+            className="px-4 py-2.5 bg-brand text-white rounded-xl text-sm font-semibold hover:bg-brand-dark disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0 shadow-sm"
           >
             Send
           </button>
         </div>
-        <p className="text-xs text-gray-400 mt-1.5 text-center">
+        <p className="text-xs text-ink-soft mt-1.5 text-center">
           Press Enter to send · Shift+Enter for new line
         </p>
       </div>
