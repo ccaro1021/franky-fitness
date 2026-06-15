@@ -1,10 +1,10 @@
 # Slice 9 — Grocery Normalization Agent (Implementation Plan)
 
-> **Status:** Planned, not started. Drafted 2026-06-15 via a `/grill-me` session
-> on `grocery.py`'s alias table. For *why*, see the Decision Log entry for
-> 2026-06-15 in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), which also
-> revises **Decision 3**. Last shipped slice before this: Slice 8 (transcript
-> observability + eval harness), committed/pushed through `c8f609f`.
+> **Status:** Built. Drafted 2026-06-15 via a `/grill-me` session on
+> `grocery.py`'s alias table, implemented 2026-06-15. For *why*, see the
+> Decision Log entry for 2026-06-15 in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md),
+> which also revises **Decision 3**. Last shipped slice before this: Slice 8
+> (transcript observability + eval harness), committed/pushed through `c8f609f`.
 
 ## Goal
 

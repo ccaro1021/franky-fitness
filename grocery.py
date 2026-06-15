@@ -2,119 +2,6 @@ import math
 
 from models import GroceryItem
 
-_INGREDIENT_ALIASES: dict[str, str] = {
-    # Egg components — you buy whole eggs, not yolks/whites separately
-    "egg yolk": "eggs",
-    "egg yolks": "eggs",
-    "egg white": "eggs",
-    "egg whites": "eggs",
-    "egg": "eggs",
-
-    # Singular/plural normalization for common produce
-    "onions": "onion",
-    "tomatoes": "tomato",
-    "potatoes": "potato",
-    "carrots": "carrot",
-    "scallions": "scallion",
-    "green onions": "green onion",
-    "cucumbers": "cucumber",
-    "mushrooms": "mushroom",
-    "lemons": "lemon",
-    "limes": "lime",
-
-    # Pantry staple synonyms — same shopping item, different recipe phrasing
-    "extra virgin olive oil": "olive oil",
-    "evoo": "olive oil",
-    "kosher salt": "salt",
-    "sea salt": "salt",
-    "table salt": "salt",
-    "ground black pepper": "black pepper",
-    "ground pepper": "black pepper",
-    "all-purpose flour": "flour",
-    "all purpose flour": "flour",
-    "granulated sugar": "sugar",
-    "white sugar": "sugar",
-    "garlic clove": "garlic",
-    "garlic cloves": "garlic",
-    "fresh ginger": "ginger",
-    "chicken stock": "chicken broth",
-    "vegetable stock": "vegetable broth",
-    "beef stock": "beef broth",
-
-    # More singular/plural and varietal normalization for produce
-    # Pepper color is a distinct purchase, so only depluralize within each color.
-    "bell peppers": "bell pepper",
-    "red bell peppers": "red bell pepper",
-    "green bell peppers": "green bell pepper",
-    "yellow bell peppers": "yellow bell pepper",
-    "jalapeno": "jalapeño",
-    "jalapenos": "jalapeño",
-    "jalapeños": "jalapeño",
-    "shallots": "shallot",
-    "zucchinis": "zucchini",
-    "apples": "apple",
-    "bananas": "banana",
-    "avocados": "avocado",
-    "strawberries": "strawberry",
-    "blueberries": "blueberry",
-    "raspberries": "raspberry",
-    "blackberries": "blackberry",
-    "sweet potatoes": "sweet potato",
-
-    # Fresh herbs normalize to the base produce item; dried herbs are a
-    # separate spice-aisle purchase, so they keep the "dried" descriptor.
-    "fresh basil": "basil",
-    "dried basil": "dried basil",
-    "fresh cilantro": "cilantro",
-    "fresh parsley": "parsley",
-    "dried parsley": "dried parsley",
-    "fresh thyme": "thyme",
-    "dried thyme": "dried thyme",
-    "fresh rosemary": "rosemary",
-    "dried rosemary": "dried rosemary",
-    "fresh oregano": "oregano",
-    "dried oregano": "dried oregano",
-    "fresh dill": "dill",
-    "fresh mint": "mint",
-    "fresh chives": "chives",
-
-    # Dairy synonyms — milk fat content collapses to one carton; salted vs.
-    # unsalted butter stay distinct because it changes which stick you buy.
-    "whole milk": "milk",
-    "skim milk": "milk",
-    "2% milk": "milk",
-    "low-fat milk": "milk",
-    "plain greek yogurt": "greek yogurt",
-    "plain yogurt": "yogurt",
-    "heavy whipping cream": "heavy cream",
-    # Drop a redundant "cheese" suffix, but keep any shredded/grated form as
-    # written — pre-shredded is a different purchase from a block.
-    "parmesan cheese": "parmesan",
-    "cheddar cheese": "cheddar",
-    "mozzarella cheese": "mozzarella",
-
-    # Protein cut/size normalization — only depluralize; "boneless skinless"
-    # is a real cut distinction, so it stays as a descriptor.
-    "chicken breasts": "chicken breast",
-    "boneless skinless chicken breasts": "boneless skinless chicken breast",
-    "chicken thighs": "chicken thigh",
-    "boneless skinless chicken thighs": "boneless skinless chicken thigh",
-    "large eggs": "eggs",
-    "large egg": "eggs",
-
-    # Spice/condiment synonyms
-    "crushed red pepper": "red pepper flakes",
-    "crushed red pepper flakes": "red pepper flakes",
-    "cayenne pepper": "cayenne",
-    "ground cumin": "cumin",
-    "ground cinnamon": "cinnamon",
-    "low sodium soy sauce": "soy sauce",
-    "reduced sodium soy sauce": "soy sauce",
-    "light brown sugar": "brown sugar",
-    "dark brown sugar": "brown sugar",
-    "confectioners sugar": "powdered sugar",
-}
-
 # Units for items sold individually — round up to a whole shoppable count.
 _DISCRETE_UNITS = {"unit", "large", "small", "medium", "whole"}
 
@@ -151,7 +38,7 @@ def generate_grocery_list(plan: dict) -> list[GroceryItem]:
     totals: dict[tuple[str, str], GroceryItem] = {}
     for meal in plan.get("meals", []):
         for ingredient in meal.get("ingredients", []):
-            name = _INGREDIENT_ALIASES.get(ingredient["name"].lower(), ingredient["name"])
+            name = ingredient.get("canonical_name", ingredient["name"])
             unit = ingredient.get("unit", "unit")
             quantity = ingredient.get("quantity_per_serving", 0)
             key = (name.lower(), unit)

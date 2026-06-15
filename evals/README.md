@@ -10,11 +10,20 @@ See `docs/SLICE_8_OBSERVABILITY_EVALS_PLAN.md` for the full design.
 source venv/bin/activate
 python -m evals.harness --trials 3                       # full suite, k=3
 python -m evals.harness --trials 3 --task meal_high_protein   # single task
+python -m evals.grocery_normalization                    # grocery normalization patterns
 ```
 
 Each trial calls `run_coordinator()` directly — no Postgres writes, no UI
 needed. **This makes real Anthropic + Spoonacular/ExerciseDB API calls**, so
 keep `--trials` small while iterating.
+
+`evals/grocery_normalization.py` is a separate, smaller eval for
+`backend.grocery_agent.normalize_ingredients` (Slice 9): each task is a novel
+ingredient string that should follow one of the 2026-06-15 alias-audit
+patterns (fresh/dried, color variants, prepared-form != raw-form, mechanical
+plurals). It clears any cached entry first so the LLM is actually exercised,
+then grades the resulting canonical name with `judge()`. It does not go
+through `run_coordinator()` or write to `evals/results/`.
 
 For fast, deterministic checks that hit no APIs (e.g. the grocery alias
 table), run the stdlib unit tests instead:

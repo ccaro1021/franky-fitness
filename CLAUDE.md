@@ -37,7 +37,7 @@ franky-fitness/
 ├── models.py             # Pydantic models: Person, Meal, Ingredient, GroceryItem, WeeklyPlan, etc.
 ├── spoonacular.py        # Spoonacular API client — search_recipes(), get_recipe()
 ├── exercisedb.py         # ExerciseDB client — search_exercises(), get_exercise()
-├── grocery.py            # Pure code: generate_grocery_list() sums + categorizes ingredients from a saved plan
+├── grocery.py            # Pure code: generate_grocery_list() sums + categorizes ingredients by canonical_name
 ├── system_prompt.txt     # System prompt for the legacy CLI (franky.py)
 ├── franky.py             # Original CLI chatbot loop (superseded by the web app)
 ├── hello_claude.py       # First API proof-of-concept (throwaway)
@@ -53,16 +53,18 @@ franky-fitness/
 │   ├── meal_agent.py     # Meal planning agent — tools, prompt builder, tool-use loop
 │   ├── exercise_agent.py # Exercise planning agent — tools, prompt builder, tool-use loop
 │   ├── preferences.py    # Pure code: records feedback and derives a per-user preference summary
+│   ├── grocery_agent.py  # Ingredient name normalization — single batch LLM call, backed by ingredient_normalizations cache
 │   ├── transcripts.py    # Transcript schema + serialize_messages/extract_steps/write_transcript/read_transcripts/promote_to_task
 │   ├── view_transcript.py # CLI to inspect transcripts/*.jsonl (--last/--agent/--invoked/--id)
-│   └── database.py       # psycopg2 connection + table setup (users, profiles, sessions, plans, agent_runs, feedback, preference_summaries)
+│   └── database.py       # psycopg2 connection + table setup (users, profiles, sessions, plans, agent_runs, feedback, preference_summaries, ingredient_normalizations)
 ├── evals/                # Eval harness (Task/Trial/Grader, pass@k/pass^k)
 │   ├── tasks.py          # Seed Task set (inputs, synthetic profile, graders)
 │   ├── graders.py        # Code-based + LLM-as-judge graders, each (transcript) -> {assertion, passed, reasoning}
 │   ├── harness.py         # python -m evals.harness --trials N [--task ID]
+│   ├── grocery_normalization.py # python -m evals.grocery_normalization — normalization pattern generalization
 │   └── README.md          # How to run + how to add a task from a real failure
 ├── transcripts/          # Gitignored JSONL Transcript records, one file per day
-├── tests/                # stdlib unittest suite (no API calls) — test_grocery.py covers the alias table
+├── tests/                # stdlib unittest suite (no API calls) — test_grocery.py covers summing/categorization
 ├── frontend/             # Vite + React + Tailwind app
 │   └── src/
 │       ├── App.jsx       # Auth gate (login/signup vs. app shell), header with user name + Profile/Logout
@@ -79,7 +81,7 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 
 **Slice 2 (done): Recipe retrieval.** The most recently saved plan for the active person is injected into the agent's system prompt on every `/api/chat` call. The agent has a `get_recipe` tool; when the user asks how to make a meal, it resolves the meal to its Spoonacular ID from the plan, fetches full ingredients + steps, and the frontend renders a `RecipeCard`.
 
-**Slice 3 (done): Grocery list generation.** When `finalize_meal_plan` is called, each meal's full ingredient list is fetched from Spoonacular and stored alongside the plan. `grocery.py` is pure code — no agent, no LLM call — that sums ingredient quantities across a saved plan and categorizes each item by store section via a static keyword lookup. Triggered two ways: (1) a "Grocery List" button on a saved `MealPlanCard` calls `GET /api/plans/{id}/grocery-list`, or (2) typing "grocery list" / "shopping list" in chat — `/api/chat` detects this intent and short-circuits to `generate_grocery_list()` before reaching the agent. Either way, the frontend renders a `GroceryListCard` grouped by category.
+**Slice 3 (done, revised by Slice 9): Grocery list generation.** `grocery.py` is pure code — no agent, no LLM call — that sums ingredient quantities across a saved plan and categorizes each item by store section via a static keyword lookup. Triggered two ways: (1) a "Grocery List" button on a saved `MealPlanCard` calls `GET /api/plans/{id}/grocery-list`, or (2) typing "grocery list" / "shopping list" in chat — `/api/chat` detects this intent and short-circuits before reaching the agent. Either way, the frontend renders a `GroceryListCard` grouped by category. Ingredient fetching and name normalization now happen at grocery-list-request time (Slice 9), not at `finalize_meal_plan` time.
 
 **Slice 4 (done): Exercise agent + coordinator routing.** `backend/exercise_agent.py` is the second LLM specialist, mirroring the meal agent's structure over ExerciseDB. `backend/coordinator.py` classifies each turn — every `/api/chat` call first sends the latest user message to Haiku with a forced `route` tool call (`agent` ∈ `{"meal", "exercise"}`, default "meal" if ambiguous), then dispatches the full conversation to the chosen specialist. The frontend renders a `WorkoutPlanCard` for finalized workout plans, with a "Save Plan" button that persists as `type='workout_plan'`.
 
@@ -91,9 +93,11 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 
 **Slice 8 (done): Transcript observability + eval harness.** Full spec in [`docs/SLICE_8_OBSERVABILITY_EVALS_PLAN.md`](docs/SLICE_8_OBSERVABILITY_EVALS_PLAN.md). Every agent call (coordinator routing + meal/exercise specialist) builds a `Transcript` (`backend/transcripts.py`) — system prompt, full serialized message history, extracted tool-call steps, final output, structured outcome, token usage, latency, model, `agent_type`, `agent_invoked`. `/api/chat` appends each turn's transcripts to gitignored `transcripts/<date>.jsonl` and logs `agent_invoked`/`transcript_id` pointer columns on `agent_runs` — no prompt content reaches Postgres. `python -m backend.view_transcript [--last N] [--agent ...] [--invoked ...] [--id ...]` pretty-prints them. The `evals/` package replays a seed set of 7 tasks through `run_coordinator()` (DB-free) for `k` trials via `python -m evals.harness --trials N [--task ID]`, grades each trial's Transcript with code-based + LLM-as-judge graders, and reports pass@k/pass^k.
 
+**Slice 9 (done): Grocery normalization agent.** Full spec in [`docs/SLICE_9_GROCERY_AGENT_PLAN.md`](docs/SLICE_9_GROCERY_AGENT_PLAN.md). Replaces the hand-maintained `_INGREDIENT_ALIASES` dict with an LLM-backed normalization step — a hybrid, not a full grocery agent: summing/categorization in `grocery.py` are unchanged. `finalize_meal_plan` no longer fetches ingredients; instead each meal gets `ingredients_fetched: false`. At grocery-list-request time (either route), `backend/main.py:_prepare_grocery_data` fetches ingredients for any meal missing them via `spoonacular.get_recipe` (failures leave that meal pending for next time), collects raw ingredient names without a `canonical_name`, and calls `backend.grocery_agent.normalize_ingredients` — which checks the global `ingredient_normalizations` cache table (seeded from the old alias dict + self-maps) and only calls `claude-opus-4-1-20250805` in one batch for cache misses, upserting results back into the cache. The per-ingredient `canonical_name` and per-meal `ingredients_fetched` flag are persisted onto `plans.content` so repeat requests are pure code. `grocery.generate_grocery_list` reads `canonical_name` directly. `python -m evals.grocery_normalization` checks that novel ingredient strings still follow the audited patterns (fresh/dried, color variants, prepared-form != raw-form).
+
 ### How the meal agent works
 - `meal_agent.run_meal_agent(messages, profile, current_plan)` runs the tool-use loop, capped at `MAX_TURNS = 10` round-trips. If hit, the loop bails out with a fallback "too much back-and-forth" message and `outcome["hit_max_turns"] = True` in the transcript, instead of looping indefinitely.
-- Tools: `search_meals` (Spoonacular search), `get_recipe` (full recipe by ID or name), `finalize_meal_plan` (emits structured plan data). Tool descriptions explicitly delineate boundaries: `search_meals` is for plan-building (call once per meal slot, use its values as-is), `get_recipe` is ONLY for explicit "how do I make X" requests (never during plan-building, since `finalize_meal_plan` fetches ingredients automatically).
+- Tools: `search_meals` (Spoonacular search), `get_recipe` (full recipe by ID or name), `finalize_meal_plan` (emits structured plan data). Tool descriptions explicitly delineate boundaries: `search_meals` is for plan-building (call once per meal slot, use its values as-is), `get_recipe` is ONLY for explicit "how do I make X" requests (never during plan-building). `finalize_meal_plan` does NOT fetch ingredients — it marks each meal `ingredients_fetched: false`; ingredients are fetched and normalized lazily at grocery-list-request time (Slice 9).
 - `_run_tool` returns a `(text_for_agent, structured_data_for_frontend)` tuple. The structured data (a finalized plan or a recipe) is surfaced back through the API response alongside the agent's text.
 - The system prompt is built dynamically per request in `_build_system_prompt` — it injects the user's profile (dietary restrictions, fitness goals, notes, and — when set — height/weight/target weight/BMI via `_format_stats_for_prompt`) and their current saved plan. It also instructs the agent to state, in one sentence, what it's about to search for and why before each `search_meals` call — these intermediate text blocks are captured automatically in the transcript's `messages`/`steps` for observability. **Note:** the web app does NOT use `system_prompt.txt`; that file is only for the legacy CLI.
 
@@ -132,14 +136,15 @@ cd frontend && npm run dev                                       # :5173 (proxie
 ### Running the tests
 The `tests/` package is a stdlib `unittest` suite — fast, deterministic, and
 **no API calls** (unlike the live eval harness in `evals/`). `tests/test_grocery.py`
-covers the grocery alias table: variant merging, the no-collapse invariants from
-the alias audit (bell-pepper colors, fresh vs. dried herbs, ground vs. fresh
-ginger, salted/unsalted butter, etc.), and structural guarantees (lowercase keys,
-one-hop value resolution). Run from the repo root:
+covers `generate_grocery_list`'s summing, discrete-unit rounding, and
+store-section categorization, feeding `canonical_name` directly on each
+ingredient (normalization itself is the LLM-backed `grocery_agent`, covered by
+`evals/grocery_normalization.py` instead, since it needs real API calls). Run
+from the repo root:
 ```bash
 source venv/bin/activate
 python -m unittest discover tests      # all unit tests
-python -m unittest tests.test_grocery  # just the grocery alias table
+python -m unittest tests.test_grocery  # just the grocery list generation tests
 ```
 
 ### Debugging: checking which agent handled a turn
@@ -150,10 +155,10 @@ psql franky_fitness -c "SELECT id, agent_type, user_id, created_at FROM agent_ru
 A successful turn inserts **two rows** with the same `created_at`: `coordinator` (the routing call) followed by `meal_agent` or `exercise_agent` (the specialist that handled it).
 
 **Caveat:** `agent_runs` only gets written on a fully successful turn. Two cases write nothing:
-- The grocery-list short-circuit ("grocery list" / "shopping list" in the message) — pure code, never reaches the coordinator.
+- The grocery-list short-circuit ("grocery list" / "shopping list" in the message) — pure code, never reaches the coordinator, UNLESS it's the first grocery-list request for that plan, in which case it logs one extra `grocery_normalizer` row (with `agent_invoked = NULL`) for the cache-miss normalization call.
 - A failed coordinator/specialist call (`RuntimeError` → HTTP 502) — the exception is raised before the insert.
 
-So "no new rows after sending a message" means either it hit the grocery shortcut or the request errored — check `/tmp/uvicorn.log` or the browser's network tab for a non-200 response.
+So "no new rows after sending a message" means either it hit the grocery shortcut with a fully-cached plan, or the request errored — check `/tmp/uvicorn.log` or the browser's network tab for a non-200 response.
 
 ### How transcripts and the eval harness work
 - `backend/transcripts.build_transcript(...)` assembles a `Transcript` dict (`transcript_id`, `created_at`, `agent_type`, `agent_invoked`, `model`, `system`, `inputs`, `messages`, `steps`, `output`, `outcome`, `usage`, `latency_ms`) from an agent call's system prompt, input messages, and final history. `serialize_messages` converts Anthropic SDK content blocks (text/tool_use/tool_result) to JSON-safe dicts; `extract_steps` pairs each `tool_use` with its `tool_result` by `tool_use_id` (a `tool_use` with no result — e.g. the coordinator's forced `route` call — becomes a step with `result=None`).
@@ -164,6 +169,7 @@ So "no new rows after sending a message" means either it hit the grocery shortcu
 - `evals/graders.py` provides graders — `(transcript) -> {assertion, passed, reasoning}` — that read only `transcript["outcome"]`/`transcript["agent_invoked"]`/`transcript["steps"]`, never the live tool-call path. `judge(rubric)` is the LLM-as-judge grader (forced tool call on Haiku).
 - `python -m evals.harness --trials N [--task ID]` runs each task `N` times via `run_coordinator()` (DB-free, fresh synthetic profile + inputs per trial), grades each trial, reports pass@N/pass^N per task and overall, and writes every trial's Transcript to `evals/results/<timestamp>/<task_id>-trial<n>.jsonl` (gitignored). **Makes real Anthropic + Spoonacular/ExerciseDB calls — keep `--trials` small.**
 - See `evals/README.md` for how to add a new task from a real captured transcript (via `promote_to_task`).
+- `backend/grocery_agent.normalize_ingredients` builds a `Transcript` with `agent_type="grocery_normalizer"` and `agent_invoked=None`, but only on a cache miss — `build_transcript`/`write_transcript` are the same functions used by the live agents, so these show up in `transcripts/<date>.jsonl` and are viewable via `view_transcript` like any other. `python -m evals.grocery_normalization` is a separate, smaller eval that exercises this directly (not via `run_coordinator`/`evals.harness`).
 
 ## Decisions Made This Session
 - **PostgreSQL from the start** (not SQLite) — matches the PRD target. Installed via `brew install postgresql@17`.

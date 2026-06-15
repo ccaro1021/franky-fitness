@@ -46,6 +46,11 @@ export default function GroceryListCard({ groceryList }) {
           </div>
         ))}
       </div>
+      {groceryList.missing_meals?.length > 0 && (
+        <div className="px-4 py-2 bg-amber-50 border-t border-gray-200 text-xs text-amber-800">
+          Couldn't fetch ingredients for: {groceryList.missing_meals.join(', ')}. Try again later.
+        </div>
+      )}
     </div>
   )
 }

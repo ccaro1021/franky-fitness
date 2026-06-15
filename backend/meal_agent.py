@@ -274,16 +274,10 @@ def _run_tool(name: str, inputs: dict) -> tuple[str, dict | None]:
             return f"Could not retrieve recipe: {e}", None
 
     if name == "finalize_meal_plan":
+        # Ingredients are fetched (and normalized into a grocery list) lazily, at
+        # grocery-list-request time — see backend/main.py's grocery-list paths.
         for meal in inputs.get("meals", []):
-            spoonacular_id = meal.get("spoonacular_id")
-            if spoonacular_id:
-                try:
-                    recipe = get_recipe(spoonacular_id)
-                    meal["ingredients"] = [ing.model_dump() for ing in recipe.ingredients]
-                except Exception:
-                    meal["ingredients"] = []
-            else:
-                meal["ingredients"] = []
+            meal["ingredients_fetched"] = False
         return "Meal plan finalized.", inputs
 
     return f"Unknown tool: {name}", None

@@ -14,10 +14,12 @@ from backend.auth import (
 )
 from backend.coordinator import run_coordinator
 from backend.database import get_connection, setup_tables
+from backend.grocery_agent import normalize_ingredients
 from backend.preferences import EMPTY_SUMMARY, forget_item, get_preference_summary, record_feedback
 from backend.transcripts import write_transcript
 from backend.users import build_profile_context, create_user, get_profile, get_user_by_email, update_profile
 from grocery import generate_grocery_list
+from spoonacular import get_recipe
 
 GROCERY_LIST_KEYWORDS = ["grocery list", "shopping list"]
 SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
@@ -162,24 +164,105 @@ def forget_my_preference(req: ForgetPreferenceRequest, user: dict = Depends(get_
     return forget_item(user["id"], req.item_type, req.item_name)
 
 
+def _prepare_grocery_data(plan_id: int, plan: dict) -> tuple[dict, dict | None]:
+    """Fetch missing ingredients and normalize their names for a saved meal plan.
+
+    For each meal without `ingredients_fetched`, fetches the full recipe from
+    Spoonacular (a failed fetch leaves that meal pending for the next request).
+    Any ingredient without a `canonical_name` is normalized in one batch via
+    grocery_agent.normalize_ingredients. Persists changes back onto plans.content
+    so repeat requests are pure code. Returns (plan, normalizer transcript or None).
+    """
+    changed = False
+    for meal in plan.get("meals", []):
+        if meal.get("ingredients_fetched"):
+            continue
+        if meal.get("ingredients"):
+            # Plan saved before this slice already has ingredients — nothing to fetch.
+            meal["ingredients_fetched"] = True
+            changed = True
+            continue
+        spoonacular_id = meal.get("spoonacular_id")
+        if not spoonacular_id:
+            meal["ingredients"] = []
+            meal["ingredients_fetched"] = True
+            changed = True
+            continue
+        try:
+            recipe = get_recipe(spoonacular_id)
+            meal["ingredients"] = [ing.model_dump() for ing in recipe.ingredients]
+            meal["ingredients_fetched"] = True
+            changed = True
+        except Exception:
+            pass  # leave ingredients_fetched unset; retried on the next request
+
+    raw_names = {
+        ing["name"]
+        for meal in plan.get("meals", [])
+        for ing in meal.get("ingredients", [])
+        if "canonical_name" not in ing
+    }
+
+    transcript = None
+    if raw_names:
+        mapping, transcript = normalize_ingredients(list(raw_names))
+        for meal in plan.get("meals", []):
+            for ing in meal.get("ingredients", []):
+                if "canonical_name" not in ing:
+                    ing["canonical_name"] = mapping.get(ing["name"].lower(), ing["name"].lower())
+                    changed = True
+
+    if changed:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE plans SET content = %s WHERE id = %s", (json.dumps(plan), plan_id))
+            conn.commit()
+
+    return plan, transcript
+
+
+def _log_grocery_transcript(transcript: dict, user_id: int) -> None:
+    """Write a grocery_normalizer transcript and its agent_runs row (only happens on cache misses)."""
+    write_transcript(transcript)
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO agent_runs
+                   (agent_type, user_id, input_tokens, output_tokens, latency_ms, agent_invoked, transcript_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    transcript["agent_type"],
+                    user_id,
+                    transcript["usage"]["input_tokens"],
+                    transcript["usage"]["output_tokens"],
+                    transcript["latency_ms"],
+                    transcript["agent_invoked"],
+                    transcript["transcript_id"],
+                ),
+            )
+        conn.commit()
+
+
 @app.post("/api/chat")
 def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
 
     # Inject the most recently saved plan of each type so specialists know this week's plans
     current_meal_plan = None
+    current_meal_plan_id = None
     current_workout_plan = None
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT content FROM plans
+                """SELECT id, content FROM plans
                    WHERE user_id = %s AND type = 'meal_plan'
                    ORDER BY created_at DESC LIMIT 1""",
                 (user["id"],),
             )
             row = cur.fetchone()
             if row:
-                current_meal_plan = row[0]
+                current_meal_plan_id = row[0]
+                current_meal_plan = row[1]
 
             cur.execute(
                 """SELECT content FROM plans
@@ -194,9 +277,18 @@ def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     # Grocery lists are pure code, not an agent call — short-circuit if asked for one
     last_message = messages[-1]["content"].lower() if messages else ""
     if current_meal_plan and any(kw in last_message for kw in GROCERY_LIST_KEYWORDS):
-        items = generate_grocery_list(current_meal_plan)
+        plan, transcript = _prepare_grocery_data(current_meal_plan_id, current_meal_plan)
+        if transcript:
+            _log_grocery_transcript(transcript, user["id"])
+
+        items = generate_grocery_list(plan)
+        missing = [m["name"] for m in plan.get("meals", []) if not m.get("ingredients_fetched")]
+        message = "Here's your grocery list for this week's plan!"
+        if missing:
+            message += f" (Couldn't fetch ingredients for: {', '.join(missing)} — try again later.)"
+
         return {
-            "message": "Here's your grocery list for this week's plan!",
+            "message": message,
             "meal_plan": None,
             "recipe": None,
             "grocery_list": {"items": [item.model_dump() for item in items]},
@@ -337,5 +429,10 @@ def get_grocery_list(plan_id: int, user: dict = Depends(get_current_user)):
     if not row:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    items = generate_grocery_list(row[0])
-    return {"items": [item.model_dump() for item in items]}
+    plan, transcript = _prepare_grocery_data(plan_id, row[0])
+    if transcript:
+        _log_grocery_transcript(transcript, user["id"])
+
+    items = generate_grocery_list(plan)
+    missing = [m["name"] for m in plan.get("meals", []) if not m.get("ingredients_fetched")]
+    return {"items": [item.model_dump() for item in items], "missing_meals": missing or None}
