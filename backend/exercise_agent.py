@@ -229,7 +229,7 @@ When building a workout plan:
 3. Before each search_exercises call, state in one short sentence what you're about to look for and why (e.g. "Searching for a dumbbell chest exercise for Monday's push day").
 4. Use search_exercises to find real exercises for each session — never invent exercise names or IDs.
 5. Assign sets, reps, and rest periods appropriate to the goal (fat loss = higher reps/shorter rest, muscle building = moderate reps/longer rest).
-6. Once the full plan is assembled, call finalize_workout_plan with structured data, then summarize it conversationally.
+6. Once the full plan is assembled, call finalize_workout_plan with structured data, then reply with a short 1-2 sentence intro only (e.g. "Here's your 3-day plan — see below. Let me know if you'd like to swap any exercises."). Do not write out exercises, sets, reps, or rest periods in your text — the plan card below already shows them.
 
 If {profile['name']} states durable personal info meant to persist — height, weight, target weight, a new dietary restriction, a new fitness goal, or a general note like an injury — call update_profile to save it, and confirm in plain language what you saved (don't restate the whole profile). Don't call it for one-off, single-session preferences (e.g. "let's skip legs today").
 {"\nWhen you call finalize_workout_plan, also include one short sentence in your reply noting that sharing fitness goals (via chat or the Profile page) would help tailor the program further." if _profile_incomplete(profile) else ""}
