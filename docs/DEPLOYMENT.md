@@ -81,7 +81,7 @@ Build (no local Docker required) using `cloudbuild.backend.yaml`, which points
 at `backend/Dockerfile` while using the repo root as context:
 
 ```bash
-cd /Users/chriscaro/code/franky-fitness
+cd path/to/franky-fitness
 
 gcloud builds submit . \
   --config=cloudbuild.backend.yaml \
@@ -107,7 +107,7 @@ so the schema gets created in Cloud SQL on first boot — no manual migration.
 be built directly with `gcloud builds submit`:
 
 ```bash
-cd /Users/chriscaro/code/franky-fitness/frontend
+cd path/to/franky-fitness/frontend
 
 gcloud builds submit . \
   --tag us-central1-docker.pkg.dev/PROJECT_ID/franky/frontend:latest

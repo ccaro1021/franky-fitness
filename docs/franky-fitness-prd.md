@@ -229,7 +229,7 @@ Tests should use realistic inputs (real dietary restrictions, real feedback hist
 
 ### Prior art
 
-Tests for the agent modules follow the same output-validation pattern as the `eval_franky.py` eval suite already built in the project: run the agent with controlled inputs, assert on the structure and content of the output. LLM-graded evals (using Claude as a grader) are appropriate for subjective assertions (e.g., "does this meal plan respect the user's dietary restrictions?"). Code-based assertions are appropriate for structural checks (e.g., "does the plan contain exactly 7 days?").
+Tests for the agent modules follow the same output-validation pattern as the `evals/` eval suite already built in the project: run the agent with controlled inputs, assert on the structure and content of the output. LLM-graded evals (using Claude as a grader) are appropriate for subjective assertions (e.g., "does this meal plan respect the user's dietary restrictions?"). Code-based assertions are appropriate for structural checks (e.g., "does the plan contain exactly 7 days?").
 
 ---
 
