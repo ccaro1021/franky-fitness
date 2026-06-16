@@ -34,14 +34,10 @@ franky-fitness/
 ├── CLAUDE.md             # This file
 ├── README.md
 ├── requirements.txt      # Direct dependencies
-├── models.py             # Pydantic models: Person, Meal, Ingredient, GroceryItem, WeeklyPlan, etc.
+├── models.py             # Pydantic models: Meal, Ingredient, GroceryItem, Exercise
 ├── spoonacular.py        # Spoonacular API client — search_recipes(), get_recipe()
 ├── exercisedb.py         # ExerciseDB client — search_exercises(), get_exercise()
 ├── grocery.py            # Pure code: generate_grocery_list() sums + categorizes ingredients by canonical_name
-├── system_prompt.txt     # System prompt for the legacy CLI (franky.py)
-├── franky.py             # Original CLI chatbot loop (superseded by the web app)
-├── hello_claude.py       # First API proof-of-concept (throwaway)
-├── phase-0-notes.md      # Learning journal
 ├── docs/
 │   └── franky-fitness-prd.md   # Full product requirements doc
 ├── backend/              # FastAPI application
@@ -108,7 +104,7 @@ The project has moved from the Phase 0 CLI (`franky.py`) into a web app, built a
 - `meal_agent.run_meal_agent(messages, profile, current_plan)` runs the tool-use loop, capped at `MAX_TURNS = 10` round-trips. If hit, the loop bails out with a fallback "too much back-and-forth" message and `outcome["hit_max_turns"] = True` in the transcript, instead of looping indefinitely.
 - Tools: `search_meals` (Spoonacular search), `get_recipe` (full recipe by ID or name), `finalize_meal_plan` (emits structured plan data). Tool descriptions explicitly delineate boundaries: `search_meals` is for plan-building (call once per meal slot, use its values as-is), `get_recipe` is ONLY for explicit "how do I make X" requests (never during plan-building). `finalize_meal_plan` does NOT fetch ingredients — it marks each meal `ingredients_fetched: false`; ingredients are fetched and normalized lazily at grocery-list-request time (Slice 9).
 - `_run_tool` returns a `(text_for_agent, structured_data_for_frontend)` tuple. The structured data (a finalized plan or a recipe) is surfaced back through the API response alongside the agent's text.
-- The system prompt is built dynamically per request in `_build_system_prompt` — it injects the user's profile (dietary restrictions, fitness goals, notes, and — when set — height/weight/target weight/BMI via `_format_stats_for_prompt`) and their current saved plan. It also instructs the agent to state, in one sentence, what it's about to search for and why before each `search_meals` call — these intermediate text blocks are captured automatically in the transcript's `messages`/`steps` for observability. **Note:** the web app does NOT use `system_prompt.txt`; that file is only for the legacy CLI.
+- The system prompt is built dynamically per request in `_build_system_prompt` — it injects the user's profile (dietary restrictions, fitness goals, notes, and — when set — height/weight/target weight/BMI via `_format_stats_for_prompt`) and their current saved plan. It also instructs the agent to state, in one sentence, what it's about to search for and why before each `search_meals` call — these intermediate text blocks are captured automatically in the transcript's `messages`/`steps` for observability.
 
 ### How the exercise agent works
 - `exercise_agent.run_exercise_agent(messages, profile, current_plan)` mirrors the meal agent's tool-use loop, including the `MAX_TURNS = 10` guardrail and `outcome["hit_max_turns"]`.

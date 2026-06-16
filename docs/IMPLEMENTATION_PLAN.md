@@ -190,7 +190,7 @@ Every criterion is checkable — by code, by a model grading a transcript, or by
 
 **Coordinator passes when:** meal-related messages route to the meal agent and exercise-related messages route to the exercise agent; ambiguous/general messages don't crash either specialist — *model-graded check on a labeled set of sample messages*
 
-**Regression / whole system:** run the eval suite (modeled on the existing `eval_franky.py` pattern) before exposing Franky to anyone beyond Chris & Kaitlyn. **Minimum bar: pass^3** (succeeds on all of 3 runs) on each agent's core behaviors — a product whose value is consistency can't ship on single-run luck.
+**Regression / whole system:** run the eval suite (the `evals/` harness — `python -m evals.harness`) before exposing Franky to anyone beyond Chris & Kaitlyn. **Minimum bar: pass^3** (succeeds on all of 3 runs) on each agent's core behaviors — a product whose value is consistency can't ship on single-run luck.
 
 **Whole system passes when:** Chris and Kaitlyn can each get a week's meals + grocery list + workout from one conversation against their own profile and history — and would actually follow it.
 
