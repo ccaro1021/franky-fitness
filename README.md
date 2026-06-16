@@ -4,7 +4,10 @@ Franky is a conversational AI meal-planning, exercise, and grocery assistant bui
 
 > **Live demo:** [franky-frontend-1097300861746.us-central1.run.app](https://franky-frontend-1097300861746.us-central1.run.app) &nbsp;·&nbsp; built with the Anthropic Python SDK, FastAPI, React, and PostgreSQL.
 
-<!-- TODO: add a screenshot or short GIF of the chat → meal plan → grocery list flow here -->
+<img width="1468" height="682" alt="Screenshot 2026-06-16 at 8 01 26 AM" src="https://github.com/user-attachments/assets/fc76b971-b7ae-412f-9532-7fdbe649f313" />
+
+<img width="1466" height="757" alt="Screenshot 2026-06-16 at 8 02 17 AM" src="https://github.com/user-attachments/assets/bb61324a-2c30-4730-a8eb-2c501a7ec3c7" />
+
 
 ## What it does
 
