@@ -41,21 +41,33 @@ function Message({ msg }) {
   )
 }
 
+const STORAGE_KEY = (userId) => `franky_chat_${userId}`
+
+function loadMessages(user, isNewSignup) {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY(user.id))
+    if (saved) return JSON.parse(saved)
+  } catch {}
+  return [{
+    role: 'assistant',
+    content: `Hi ${user.name}! I'm Franky, your nutrition and training coach. What can I help you with this week? I can build a meal plan, suggest recipes, generate a grocery list, or put together a workout plan.${
+      isNewSignup
+        ? " By the way — the more you share about your stats, goals, and dietary restrictions (here in chat or on your Profile page), the better I can tailor your plans."
+        : ''
+    }`,
+  }]
+}
+
 export default function Chat({ user, isNewSignup = false }) {
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content: `Hi ${user.name}! I'm Franky, your nutrition and training coach. What can I help you with this week? I can build a meal plan, suggest recipes, generate a grocery list, or put together a workout plan.${
-        isNewSignup
-          ? " By the way — the more you share about your stats, goals, and dietary restrictions (here in chat or on your Profile page), the better I can tailor your plans."
-          : ''
-      }`,
-    },
-  ])
+  const [messages, setMessages] = useState(() => loadMessages(user, isNewSignup))
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const bottomRef = useRef(null)
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY(user.id), JSON.stringify(messages)) } catch {}
+  }, [messages, user.id])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })

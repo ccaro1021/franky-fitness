@@ -25,6 +25,7 @@ export default function App() {
 
   async function handleLogout() {
     await logout()
+    try { localStorage.removeItem(`franky_chat_${user?.id}`) } catch {}
     setUser(null)
     setIsNewSignup(false)
     setView('chat')
