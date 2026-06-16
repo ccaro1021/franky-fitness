@@ -2,7 +2,7 @@
 
 Franky is a conversational AI meal-planning, exercise, and grocery assistant built for a couple. You chat with Franky in plain language and get back structured weekly meal plans, workout programs, and an automatically-consolidated grocery list — all tailored to two people's profiles, goals, and dietary restrictions.
 
-> **Live demo:** _coming soon_ &nbsp;·&nbsp; built with the Anthropic Python SDK, FastAPI, React, and PostgreSQL.
+> **Live demo:** [franky-frontend-1097300861746.us-central1.run.app](https://franky-frontend-1097300861746.us-central1.run.app) &nbsp;·&nbsp; built with the Anthropic Python SDK, FastAPI, React, and PostgreSQL.
 
 <!-- TODO: add a screenshot or short GIF of the chat → meal plan → grocery list flow here -->
 
