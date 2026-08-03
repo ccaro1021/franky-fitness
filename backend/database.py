@@ -223,4 +223,24 @@ def setup_tables():
                        VALUES (%s, %s) ON CONFLICT (raw_name) DO NOTHING""",
                     (raw_name, canonical_name),
                 )
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS whoop_oauth_states (
+                    state VARCHAR(64) PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS whoop_tokens (
+                    user_id INTEGER PRIMARY KEY REFERENCES users(id),
+                    access_token TEXT NOT NULL,
+                    refresh_token TEXT,
+                    token_type VARCHAR(20) NOT NULL DEFAULT 'Bearer',
+                    scope TEXT,
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
         conn.commit()

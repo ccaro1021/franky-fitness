@@ -1,8 +1,10 @@
 import json
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from backend.auth import (
@@ -19,11 +21,21 @@ from backend.preferences import EMPTY_SUMMARY, forget_item, get_preference_summa
 from backend.saved_recipes import delete_saved_recipe, list_saved_recipes, save_recipe
 from backend.transcripts import write_transcript
 from backend.users import build_profile_context, create_user, get_profile, get_user_by_email, update_profile
+from backend.whoop import (
+    consume_oauth_state,
+    create_oauth_state,
+    exchange_code,
+    get_authorization_url,
+    get_whoop_tokens,
+    refresh_whoop_token,
+    store_whoop_tokens,
+)
 from grocery import generate_grocery_list
 from spoonacular import get_recipe, search_recipes
 
 GROCERY_LIST_KEYWORDS = ["grocery list", "shopping list"]
 SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 
 @asynccontextmanager
@@ -135,6 +147,52 @@ def logout(request: Request, response: Response):
 @app.get("/api/auth/me")
 def me(user: dict = Depends(get_current_user)):
     return user
+
+
+@app.get("/api/auth/whoop/connect")
+def whoop_connect(user: dict = Depends(get_current_user)):
+    """Initiate the WHOOP OAuth flow: generate a state token and redirect to WHOOP."""
+    try:
+        state = create_oauth_state(user["id"])
+        return RedirectResponse(get_authorization_url(state))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.get("/api/auth/whoop/callback")
+def whoop_callback(code: str | None = None, state: str | None = None, error: str | None = None):
+    """Receive the WHOOP OAuth redirect, exchange the code for tokens, and redirect to the frontend."""
+    if error or not code or not state:
+        return RedirectResponse(f"{FRONTEND_URL}?whoop=denied")
+
+    user_id = consume_oauth_state(state)
+    if not user_id:
+        return RedirectResponse(f"{FRONTEND_URL}?whoop=error")
+
+    try:
+        token_data = exchange_code(code)
+    except RuntimeError:
+        return RedirectResponse(f"{FRONTEND_URL}?whoop=error")
+
+    store_whoop_tokens(user_id, token_data)
+    return RedirectResponse(f"{FRONTEND_URL}?whoop=connected")
+
+
+@app.get("/api/whoop/status")
+def whoop_status(user: dict = Depends(get_current_user)):
+    """Return whether the current user has connected their WHOOP account."""
+    tokens = get_whoop_tokens(user["id"])
+    return {"connected": tokens is not None}
+
+
+@app.post("/api/whoop/refresh")
+def whoop_refresh(user: dict = Depends(get_current_user)):
+    """Exchange the stored WHOOP refresh token for a new access token."""
+    try:
+        token_data = refresh_whoop_token(user["id"])
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"expires_in": token_data.get("expires_in"), "scope": token_data.get("scope")}
 
 
 @app.get("/api/profile")
