@@ -1,7 +1,10 @@
+import asyncio
+import os
 import time
 
-from anthropic import Anthropic
+from anthropic import Anthropic, AsyncAnthropic
 from dotenv import load_dotenv
+from mcp import ClientSession, StdioServerParameters, stdio_client
 
 from exercisedb import search_exercises
 
@@ -14,6 +17,7 @@ client = Anthropic()
 
 MODEL = "claude-sonnet-4-6"
 MAX_TURNS = 10  # cap on tool-use round-trips before bailing out with a fallback message
+WHOOP_MCP_SERVER_URL = os.getenv("WHOOP_MCP_SERVER_URL")
 
 _DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -212,7 +216,10 @@ def _profile_incomplete(profile: dict) -> bool:
 
 
 def _build_system_prompt(
-    profile: dict, current_plan: dict | None = None, preference_summary: dict | None = None
+    profile: dict,
+    current_plan: dict | None = None,
+    preference_summary: dict | None = None,
+    whoop_connected: bool = False,
 ) -> str:
     goals = ", ".join(profile["fitness_goals"])
     notes = profile.get("notes", "")
@@ -250,6 +257,14 @@ If {profile['name']} asks to adjust the plan, modify this one rather than starti
         preferences_text = _format_preferences_for_prompt(preference_summary)
         if preferences_text:
             prompt += f"\n\nKnown preferences for {profile['name']} (from past feedback):\n{preferences_text}"
+
+    if whoop_connected:
+        prompt += (
+            f"\n\nYou have access to WHOOP biometric tools: get_recovery, get_sleep, and get_recent_workouts. "
+            f"Use them when {profile['name']} asks about today's workout intensity, when adjusting plans "
+            f"based on how they feel, or when recovery context is relevant. "
+            f"Fetch current data rather than asking them to report it."
+        )
 
     return prompt
 
@@ -312,12 +327,133 @@ def _run_tool(name: str, inputs: dict, user_id: int | None = None) -> tuple[str,
     return f"Unknown tool: {name}", None
 
 
+async def _run_with_mcp_stdio(
+    messages: list[dict],
+    system: str,
+    whoop_access_token: str,
+    user_id: int | None,
+) -> tuple[str, dict | None, int, int, list, bool]:
+    """Run the exercise agent as a real MCP client over stdio transport (Phase A).
+
+    Opens a ClientSession, calls initialize() + list_tools() to discover WHOOP tools,
+    converts MCP tool schemas to Anthropic format, then runs the tool-use loop —
+    dispatching MCP tool calls via mcp_client.call_tool() and local tools via _run_tool().
+    """
+    async_client = AsyncAnthropic()
+
+    # Spawn the MCP server subprocess with the WHOOP token in its environment.
+    # The server reads it via os.getenv("WHOOP_AUTH_TOKEN") in stdio mode.
+    server_params = StdioServerParameters(
+        command="python",
+        args=["-m", "backend.whoop_mcp_server"],
+        env={**os.environ, "WHOOP_AUTH_TOKEN": whoop_access_token},
+    )
+
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as mcp_client:
+            # Phase A learning moment 1: session lifecycle
+            await mcp_client.initialize()
+
+            # Phase A learning moment 2: tool discovery — Claude never sees the MCP server directly;
+            # we translate its schema into Anthropic's tool format
+            tools_result = await mcp_client.list_tools()
+            mcp_tool_names = {t.name for t in tools_result.tools}
+
+            mcp_tool_schemas = [
+                {
+                    "name": t.name,
+                    "description": t.description or "",
+                    "input_schema": t.input_schema,
+                }
+                for t in tools_result.tools
+            ]
+            all_tools = TOOLS + mcp_tool_schemas
+
+            history = list(messages)
+            input_tokens = 0
+            output_tokens = 0
+            workout_plan: dict | None = None
+            hit_max_turns = False
+
+            response = await async_client.messages.create(
+                model=MODEL,
+                max_tokens=4096,
+                system=system,
+                tools=all_tools,
+                messages=history,
+            )
+            input_tokens += response.usage.input_tokens
+            output_tokens += response.usage.output_tokens
+            turns = 1
+
+            while response.stop_reason == "tool_use":
+                tool_uses = [b for b in response.content if b.type == "tool_use"]
+                history.append({"role": "assistant", "content": response.content})
+
+                tool_results = []
+                for tool_use in tool_uses:
+                    if tool_use.name in mcp_tool_names:
+                        # Phase A learning moment 3: dispatch via MCP protocol
+                        try:
+                            mcp_result = await mcp_client.call_tool(
+                                tool_use.name, arguments=tool_use.input
+                            )
+                            text_parts = [
+                                c.text for c in mcp_result.content if hasattr(c, "text")
+                            ]
+                            result_text = "\n".join(text_parts) if text_parts else "No result from WHOOP."
+                        except Exception as e:
+                            result_text = f"WHOOP data temporarily unavailable: {e}"
+                        result_data = None
+                    else:
+                        result_text, result_data = _run_tool(tool_use.name, tool_use.input, user_id)
+
+                    if tool_use.name == "finalize_workout_plan":
+                        workout_plan = result_data
+
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tool_use.id,
+                        "content": result_text,
+                    })
+
+                history.append({"role": "user", "content": tool_results})
+
+                if turns >= MAX_TURNS:
+                    hit_max_turns = True
+                    break
+
+                response = await async_client.messages.create(
+                    model=MODEL,
+                    max_tokens=4096,
+                    system=system,
+                    tools=all_tools,
+                    messages=history,
+                )
+                input_tokens += response.usage.input_tokens
+                output_tokens += response.usage.output_tokens
+                turns += 1
+
+    if hit_max_turns:
+        message = (
+            "I'm having trouble wrapping this up after a lot of back-and-forth. "
+            "Could you try rephrasing your request or breaking it into smaller asks?"
+        )
+        final_history = history
+    else:
+        message = next(b.text for b in response.content if hasattr(b, "text"))
+        final_history = history + [{"role": "assistant", "content": response.content}]
+
+    return message, workout_plan, input_tokens, output_tokens, final_history, hit_max_turns
+
+
 def run_exercise_agent(
     messages: list[dict],
     profile: dict,
     current_plan: dict | None = None,
     preference_summary: dict | None = None,
     user_id: int | None = None,
+    whoop_access_token: str | None = None,
 ) -> dict:
     """
     Run the exercise planning agent for one conversation turn.
@@ -333,52 +469,30 @@ def run_exercise_agent(
         message, workout_plan, input_tokens, output_tokens, latency_ms
     """
     start = time.time()
-    input_tokens = 0
-    output_tokens = 0
-    workout_plan: dict | None = None
+    whoop_connected = bool(whoop_access_token)
+    system = _build_system_prompt(profile, current_plan, preference_summary, whoop_connected=whoop_connected)
 
-    system = _build_system_prompt(profile, current_plan, preference_summary)
-    history = list(messages)
-
-    try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=4096,
-            system=system,
-            tools=TOOLS,
-            messages=history,
-        )
-    except Exception as e:
-        raise RuntimeError(f"Agent call failed: {e}") from e
-
-    input_tokens += response.usage.input_tokens
-    output_tokens += response.usage.output_tokens
-
-    turns = 1
-    hit_max_turns = False
-
-    while response.stop_reason == "tool_use":
-        tool_uses = [b for b in response.content if b.type == "tool_use"]
-        history.append({"role": "assistant", "content": response.content})
-
-        tool_results = []
-        for tool_use in tool_uses:
-            result_text, result_data = _run_tool(tool_use.name, tool_use.input, user_id)
-
-            if tool_use.name == "finalize_workout_plan":
-                workout_plan = result_data
-
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tool_use.id,
-                "content": result_text,
-            })
-
-        history.append({"role": "user", "content": tool_results})
-
-        if turns >= MAX_TURNS:
-            hit_max_turns = True
-            break
+    if whoop_access_token:
+        # Phase A: real MCP client path — spawn the MCP server subprocess, open a ClientSession,
+        # discover tools, and run the tool-use loop with both local and MCP tools.
+        # asyncio.new_event_loop() is safe here because run_exercise_agent is always called
+        # from a FastAPI threadpool worker (sync route handler), never from within an existing loop.
+        loop = asyncio.new_event_loop()
+        try:
+            message, workout_plan, input_tokens, output_tokens, final_history, hit_max_turns = (
+                loop.run_until_complete(
+                    _run_with_mcp_stdio(messages, system, whoop_access_token, user_id)
+                )
+            )
+        except Exception as e:
+            raise RuntimeError(f"Exercise agent (MCP) call failed: {e}") from e
+        finally:
+            loop.close()
+    else:
+        input_tokens = 0
+        output_tokens = 0
+        workout_plan: dict | None = None
+        history = list(messages)
 
         try:
             response = client.messages.create(
@@ -393,17 +507,57 @@ def run_exercise_agent(
 
         input_tokens += response.usage.input_tokens
         output_tokens += response.usage.output_tokens
-        turns += 1
 
-    if hit_max_turns:
-        message = (
-            "I'm having trouble wrapping this up after a lot of back-and-forth. "
-            "Could you try rephrasing your request or breaking it into smaller asks?"
-        )
-        final_history = history
-    else:
-        message = next(b.text for b in response.content if hasattr(b, "text"))
-        final_history = history + [{"role": "assistant", "content": response.content}]
+        turns = 1
+        hit_max_turns = False
+
+        while response.stop_reason == "tool_use":
+            tool_uses = [b for b in response.content if b.type == "tool_use"]
+            history.append({"role": "assistant", "content": response.content})
+
+            tool_results = []
+            for tool_use in tool_uses:
+                result_text, result_data = _run_tool(tool_use.name, tool_use.input, user_id)
+
+                if tool_use.name == "finalize_workout_plan":
+                    workout_plan = result_data
+
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_use.id,
+                    "content": result_text,
+                })
+
+            history.append({"role": "user", "content": tool_results})
+
+            if turns >= MAX_TURNS:
+                hit_max_turns = True
+                break
+
+            try:
+                response = client.messages.create(
+                    model=MODEL,
+                    max_tokens=4096,
+                    system=system,
+                    tools=TOOLS,
+                    messages=history,
+                )
+            except Exception as e:
+                raise RuntimeError(f"Agent call failed: {e}") from e
+
+            input_tokens += response.usage.input_tokens
+            output_tokens += response.usage.output_tokens
+            turns += 1
+
+        if hit_max_turns:
+            message = (
+                "I'm having trouble wrapping this up after a lot of back-and-forth. "
+                "Could you try rephrasing your request or breaking it into smaller asks?"
+            )
+            final_history = history
+        else:
+            message = next(b.text for b in response.content if hasattr(b, "text"))
+            final_history = history + [{"role": "assistant", "content": response.content}]
 
     latency_ms = round((time.time() - start) * 1000)
 

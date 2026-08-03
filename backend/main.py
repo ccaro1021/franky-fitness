@@ -21,6 +21,7 @@ from backend.preferences import EMPTY_SUMMARY, forget_item, get_preference_summa
 from backend.saved_recipes import delete_saved_recipe, list_saved_recipes, save_recipe
 from backend.transcripts import write_transcript
 from backend.users import build_profile_context, create_user, get_profile, get_user_by_email, update_profile
+from backend.whoop_api import get_valid_access_token
 from backend.whoop import (
     consume_oauth_state,
     create_oauth_state,
@@ -385,6 +386,11 @@ def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
     preference_summary = get_preference_summary(user["id"])
 
     try:
+        whoop_access_token = get_valid_access_token(user["id"])
+    except Exception:
+        whoop_access_token = None
+
+    try:
         result = run_coordinator(
             messages,
             profile,
@@ -392,6 +398,7 @@ def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
             current_workout_plan=current_workout_plan,
             preference_summary=preference_summary,
             user_id=user["id"],
+            whoop_access_token=whoop_access_token,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))

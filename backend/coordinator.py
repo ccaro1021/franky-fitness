@@ -101,6 +101,7 @@ def run_coordinator(
     current_workout_plan: dict | None = None,
     preference_summary: dict | None = None,
     user_id: int | None = None,
+    whoop_access_token: str | None = None,
 ) -> dict:
     """
     Classify the latest message and dispatch to the meal or exercise specialist.
@@ -116,7 +117,8 @@ def run_coordinator(
 
     if agent == "exercise":
         result = run_exercise_agent(
-            messages, profile, current_plan=current_workout_plan, preference_summary=preference_summary, user_id=user_id
+            messages, profile, current_plan=current_workout_plan, preference_summary=preference_summary,
+            user_id=user_id, whoop_access_token=whoop_access_token,
         )
         result["meal_plan"] = None
         result["recipe"] = None
