@@ -31,7 +31,7 @@ We do not share your data with any other third party, and we do not use it for a
 
 ## Data Storage
 
-[Describe here where and how long you store WHOOP data and access/refresh tokens — e.g., "Data is stored in our database and retained until you revoke access." Fill in based on your actual implementation.]
+OAuth access and refresh tokens are stored in our PostgreSQL database and retained until you revoke access via the WHOOP app or contact us to request deletion. WHOOP data retrieved through the API is not stored persistently — it is processed in real time by Anthropic's Claude models to generate your personalized recommendations and is not written to our database.
 
 ## Your Controls
 
